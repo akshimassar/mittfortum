@@ -13,7 +13,12 @@ from homeassistant.components.recorder.statistics import async_add_external_stat
 from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.util import dt as dt_util
 
-from ..const import DOMAIN, PRICE_RESOLUTIONS, STATISTICS_BACKFILL_DAYS
+from ..const import (
+    DOMAIN,
+    PRICE_RESOLUTIONS,
+    STATISTICS_BACKFILL_DAYS,
+    STATISTICS_REQUEST_TIMEOUT_SECONDS,
+)
 from ..exceptions import APIError, InvalidResponseError, UnexpectedStatusCodeError
 from ..models import ConsumptionData, CustomerDetails, MeteringPoint, TimeSeries
 from .endpoints import APIEndpoints
@@ -108,6 +113,7 @@ class FortumAPIClient:
         to_date: datetime | None = None,
         resolution: str = "MONTH",
         series_type: str | None = None,
+        request_timeout: float | None = None,
     ) -> list[TimeSeries]:
         """Fetch time series data using tRPC endpoint with automatic retry logic."""
         # Default to last 3 months if no dates provided
@@ -124,6 +130,7 @@ class FortumAPIClient:
                 to_date,
                 resolution,
                 series_type=series_type,
+                request_timeout=request_timeout,
             )
         except APIError as exc:
             if "Server error" in str(exc) or "reducing date range" in str(exc):
@@ -140,6 +147,7 @@ class FortumAPIClient:
                         fallback_to,
                         resolution,
                         series_type=series_type,
+                        request_timeout=request_timeout,
                     )
                 except APIError:
                     _LOGGER.warning(
@@ -154,6 +162,7 @@ class FortumAPIClient:
                         final_to,
                         resolution,
                         series_type=series_type,
+                        request_timeout=request_timeout,
                     )
             else:
                 raise
@@ -165,6 +174,7 @@ class FortumAPIClient:
         to_date: datetime,
         resolution: str,
         series_type: str | None = None,
+        request_timeout: float | None = None,
     ) -> list[TimeSeries]:
         """Internal method to fetch time series data."""
         url = self._endpoints.get_time_series_url(
@@ -182,7 +192,7 @@ class FortumAPIClient:
             resolution,
         )
 
-        response = await self._get(url)
+        response = await self._get(url, request_timeout=request_timeout)
 
         try:
             data = await self._parse_trpc_response(response)
@@ -281,6 +291,7 @@ class FortumAPIClient:
             to_date=utc_now,
             resolution="HOUR",
             series_type="CONSUMPTION",
+            request_timeout=STATISTICS_REQUEST_TIMEOUT_SECONDS,
         )
 
         imported_points = 0
@@ -448,7 +459,12 @@ class FortumAPIClient:
         }
         return region_defaults.get(self._endpoints.profile.code, "FI")
 
-    async def _get(self, url: str, retry_count: int = 0) -> Any:
+    async def _get(
+        self,
+        url: str,
+        retry_count: int = 0,
+        request_timeout: float | None = None,
+    ) -> Any:
         """Perform authenticated GET request with retry logic."""
         # Allow maximum retries based on auth type:
         # - Session-based: 5 total attempts (4 retries)
@@ -520,18 +536,31 @@ class FortumAPIClient:
                     "Request headers: %s",
                     {k: v for k, v in headers.items() if k != "Authorization"},
                 )
-                response = await client.get(url, headers=headers)
+                request_kwargs: dict[str, Any] = {"headers": headers}
+                if request_timeout is not None:
+                    request_kwargs["timeout"] = request_timeout
+
+                response = await client.get(url, **request_kwargs)
                 return await self._handle_response(response)
             except APIError as exc:
                 return await self._handle_retry_logic(
-                    exc, url, retry_count, max_retries
+                    exc,
+                    url,
+                    retry_count,
+                    max_retries,
+                    request_timeout,
                 )
             except Exception as exc:
                 _LOGGER.exception("GET request failed for %s", url)
                 raise APIError("GET request failed") from exc
 
     async def _handle_retry_logic(
-        self, exc: APIError, url: str, retry_count: int, _max_retries: int
+        self,
+        exc: APIError,
+        url: str,
+        retry_count: int,
+        _max_retries: int,
+        request_timeout: float | None,
     ) -> Any:
         """Handle retry logic for API errors."""
         # Check if this is a token expiration that can be retried
@@ -570,7 +599,11 @@ class FortumAPIClient:
             await asyncio.sleep(delay)
 
             # Retry the request with the refreshed token
-            return await self._get(url, retry_count + 1)
+            return await self._get(
+                url,
+                retry_count + 1,
+                request_timeout=request_timeout,
+            )
         elif "Authentication failed" in str(exc):
             # If authentication completely failed, don't retry
             _LOGGER.error("Authentication failed, cannot retry: %s", exc)

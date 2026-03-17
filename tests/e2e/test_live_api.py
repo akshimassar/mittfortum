@@ -12,6 +12,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
+from time import perf_counter
 from unittest.mock import MagicMock
 
 import pytest
@@ -19,6 +20,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.httpx_client import get_async_client
 
 from custom_components.mittfortum.api import FortumAPIClient, OAuth2AuthClient
+from custom_components.mittfortum.const import STATISTICS_REQUEST_TIMEOUT_SECONDS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -294,3 +296,45 @@ async def test_live_auth_and_data_flow(
     )
 
     _LOGGER.info("Time series records fetched=%d", len(time_series))
+
+    hourly_from_date = datetime.now() - timedelta(days=14)
+    hourly_to_date = datetime.now()
+
+    _LOGGER.info(
+        "Starting hourly 14-day fetch for metering_point=%s range=%s..%s",
+        target_metering_points[0],
+        hourly_from_date.isoformat(),
+        hourly_to_date.isoformat(),
+    )
+
+    hourly_started = perf_counter()
+    try:
+        hourly_series = await api_client.get_time_series_data(
+            metering_point_nos=target_metering_points,
+            from_date=hourly_from_date,
+            to_date=hourly_to_date,
+            resolution="HOUR",
+            series_type="CONSUMPTION",
+            request_timeout=STATISTICS_REQUEST_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:  # pragma: no cover - live diagnostics path
+        elapsed = perf_counter() - hourly_started
+        session_snapshot = await _session_debug_snapshot(api_client)
+        pytest.fail(
+            _format_error("Hourly 14-day time series fetch", exc)
+            + f" | metering_point={target_metering_points[0]}"
+            + f" elapsed_seconds={elapsed:.3f}"
+            + f" session_snapshot={_safe_preview(session_snapshot, max_len=2000)}"
+        )
+
+    hourly_elapsed = perf_counter() - hourly_started
+    _LOGGER.info(
+        "Hourly 14-day fetch completed in %.3fs records=%d",
+        hourly_elapsed,
+        len(hourly_series),
+    )
+
+    assert isinstance(hourly_series, list), (
+        f"Hourly time series response was not a list "
+        f"(type={type(hourly_series).__name__})"
+    )
