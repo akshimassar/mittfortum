@@ -281,10 +281,15 @@ class FortumAPIClient:
         return await self.get_consumption_data()
 
     async def backfill_hourly_consumption_statistics_last_month(self) -> int:
-        """Backward-compatible wrapper for statistics backfill."""
-        return await self.backfill_hourly_statistics(force_full=False)
+        """Backward-compatible wrapper for regular statistics sync."""
+        return await self.backfill_hourly_statistics()
 
-    async def backfill_hourly_statistics(self, force_full: bool = False) -> int:
+    async def backfill_hourly_statistics(
+        self,
+        *,
+        rewrite: bool = False,
+        allow_historical_backfill: bool = False,
+    ) -> int:
         """Backfill hourly consumption/cost/price statistics."""
         metering_points = await self.get_metering_points()
         metering_point_nos = [point.metering_point_no for point in metering_points]
@@ -297,7 +302,7 @@ class FortumAPIClient:
 
         imported_points = 0
         for metering_point_no in metering_point_nos:
-            if force_full:
+            if rewrite:
                 imported_points += await self._backfill_metering_point_full_history(
                     metering_point_no,
                     utc_now,
@@ -306,15 +311,23 @@ class FortumAPIClient:
                 continue
 
             latest_start = await self._get_latest_statistics_start(metering_point_no)
+            from_date = utc_now - window
             if latest_start is None:
-                imported_points += await self._backfill_metering_point_full_history(
+                imported_points += await self._sync_statistics_window(
                     metering_point_no,
+                    from_date,
                     utc_now,
-                    window,
                 )
+
+                if allow_historical_backfill:
+                    imported_points += await self._backfill_metering_point_full_history(
+                        metering_point_no,
+                        from_date,
+                        window,
+                    )
                 continue
 
-            from_date = max(latest_start, utc_now - window)
+            from_date = max(latest_start, from_date)
             imported_points += await self._sync_statistics_window(
                 metering_point_no,
                 from_date,
@@ -326,12 +339,11 @@ class FortumAPIClient:
     async def _backfill_metering_point_full_history(
         self,
         metering_point_no: str,
-        utc_now: datetime,
+        window_end: datetime,
         window: timedelta,
     ) -> int:
         """Backfill by stepping backwards in two-week windows until no data."""
         imported_points = 0
-        window_end = utc_now
 
         for _ in range(MAX_FULL_BACKFILL_STEPS):
             window_start = window_end - window
@@ -354,15 +366,33 @@ class FortumAPIClient:
 
         return imported_points
 
+    async def has_existing_price_statistics(self) -> bool:
+        """Return true when any metering point already has price statistics."""
+        metering_points = await self.get_metering_points()
+        for point in metering_points:
+            latest_start = await self._get_latest_statistics_start(
+                point.metering_point_no,
+                statistic_ids=(
+                    self._build_price_statistic_id(point.metering_point_no),
+                ),
+            )
+            if latest_start is not None:
+                return True
+
+        return False
+
     async def _get_latest_statistics_start(
-        self, metering_point_no: str
+        self,
+        metering_point_no: str,
+        statistic_ids: tuple[str, ...] | None = None,
     ) -> datetime | None:
         """Return the latest recorded statistics timestamp for a metering point."""
-        statistic_ids = (
-            self._build_consumption_statistic_id(metering_point_no),
-            self._build_cost_statistic_id(metering_point_no),
-            self._build_price_statistic_id(metering_point_no),
-        )
+        if statistic_ids is None:
+            statistic_ids = (
+                self._build_price_statistic_id(metering_point_no),
+                self._build_consumption_statistic_id(metering_point_no),
+                self._build_cost_statistic_id(metering_point_no),
+            )
 
         latest_start: datetime | None = None
         for statistic_id in statistic_ids:

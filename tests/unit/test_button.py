@@ -31,7 +31,10 @@ async def test_full_statistics_sync_button_triggers_force_sync() -> None:
     button = MittFortumFullStatisticsSyncButton(coordinator, _mock_device())
     await button.async_press()
 
-    coordinator.async_run_statistics_sync.assert_awaited_once_with(force_full=True)
+    coordinator.async_run_statistics_sync.assert_awaited_once_with(
+        rewrite=True,
+        allow_historical_backfill=True,
+    )
 
 
 async def test_full_statistics_sync_button_surfaces_api_errors() -> None:

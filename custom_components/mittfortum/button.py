@@ -76,7 +76,8 @@ class MittFortumFullStatisticsSyncButton(MittFortumEntity, ButtonEntity):
         """Run full backfill and overwrite existing points."""
         try:
             imported_points = await self.coordinator.async_run_statistics_sync(
-                force_full=True
+                rewrite=True,
+                allow_historical_backfill=True,
             )
         except APIError as exc:
             raise HomeAssistantError(f"Full statistics sync failed: {exc}") from exc

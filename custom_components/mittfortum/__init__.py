@@ -99,6 +99,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Forward setup to platforms
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+        # Trigger deep historical backfill only after setup is complete and
+        # only if this appears to be the first startup (no prior price stats).
+        await coordinator.async_schedule_initial_backfill()
+
     except AuthenticationError:
         _LOGGER.exception("Authentication failed for MittFortum")
         return False

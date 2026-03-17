@@ -38,15 +38,50 @@ class MittFortumDataCoordinator(DataUpdateCoordinator[list[ConsumptionData]]):
         )
         self.api_client = api_client
         self.last_statistics_sync: datetime | None = None
+        self._historical_backfill_task = None
 
-    async def async_run_statistics_sync(self, force_full: bool = False) -> int:
+    async def async_run_statistics_sync(
+        self,
+        *,
+        rewrite: bool = False,
+        allow_historical_backfill: bool = False,
+    ) -> int:
         """Run statistics sync and update sync timestamp."""
         imported_points = await self.api_client.backfill_hourly_statistics(
-            force_full=force_full
+            rewrite=rewrite,
+            allow_historical_backfill=allow_historical_backfill,
         )
         self.last_statistics_sync = datetime.now().astimezone()
         self.async_update_listeners()
         return imported_points
+
+    async def async_schedule_initial_backfill(self) -> None:
+        """Schedule non-blocking long historical backfill on first startup."""
+        if self._historical_backfill_task and not self._historical_backfill_task.done():
+            return
+
+        has_price_stats = await self.api_client.has_existing_price_statistics()
+        if has_price_stats:
+            return
+
+        self._historical_backfill_task = self.hass.async_create_task(
+            self._async_run_initial_backfill_task()
+        )
+
+    async def _async_run_initial_backfill_task(self) -> None:
+        """Run historical backfill in background."""
+        try:
+            imported = await self.async_run_statistics_sync(
+                rewrite=False,
+                allow_historical_backfill=True,
+            )
+        except APIError as exc:
+            _LOGGER.warning("Initial background statistics backfill failed: %s", exc)
+        else:
+            _LOGGER.info(
+                "Initial background statistics backfill completed, processed %d points",
+                imported,
+            )
 
     async def _async_update_data(self) -> list[ConsumptionData]:
         """Fetch data from API."""
@@ -57,7 +92,10 @@ class MittFortumDataCoordinator(DataUpdateCoordinator[list[ConsumptionData]]):
                 data = []
 
             try:
-                imported_points = await self.async_run_statistics_sync()
+                imported_points = await self.async_run_statistics_sync(
+                    rewrite=False,
+                    allow_historical_backfill=False,
+                )
             except APIError as exc:
                 _LOGGER.warning("Hourly statistics sync failed: %s", exc)
             else:

@@ -599,7 +599,7 @@ class TestFortumAPIClient:
             patch.object(
                 client,
                 "get_time_series_data",
-                side_effect=[[time_series], []],
+                return_value=[time_series],
             ) as mock_get_series,
             patch(
                 "custom_components.mittfortum.api.client.async_add_external_statistics"
@@ -612,6 +612,7 @@ class TestFortumAPIClient:
             STATISTICS_REQUEST_TIMEOUT_SECONDS
         )
         assert mock_add_stats.call_count == 3
+        assert mock_get_series.call_count == 1
 
         statistic_ids = [
             call.args[1]["statistic_id"] for call in mock_add_stats.call_args_list
@@ -642,8 +643,33 @@ class TestFortumAPIClient:
                 client, "get_time_series_data", return_value=[]
             ) as mock_get_series,
         ):
-            imported = await client.backfill_hourly_statistics(force_full=False)
+            imported = await client.backfill_hourly_statistics()
 
         assert imported == 0
         assert mock_get_series.call_count == 1
         assert mock_get_series.call_args.kwargs["from_date"] == latest_start
+
+    async def test_backfill_hourly_statistics_historical_mode_steps_backwards(
+        self, mock_hass, mock_auth_client
+    ):
+        """Historical mode should step backwards until empty window."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        with (
+            patch.object(
+                client,
+                "get_metering_points",
+                return_value=[MeteringPoint(metering_point_no="6094111")],
+            ),
+            patch.object(client, "_get_latest_statistics_start", return_value=None),
+            patch.object(
+                client,
+                "_sync_statistics_window",
+                side_effect=[3, 3, 0],
+            ) as mock_sync,
+        ):
+            imported = await client.backfill_hourly_statistics(
+                allow_historical_backfill=True,
+            )
+
+        assert imported == 6
+        assert mock_sync.call_count == 3
