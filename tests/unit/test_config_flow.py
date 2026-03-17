@@ -114,8 +114,8 @@ class TestMittFortumConfigFlow:
 class TestValidateInput:
     """Test validate_input function."""
 
-    @patch("custom_components.mittfortum.config_flow.OAuth2AuthClient")
-    @patch("custom_components.mittfortum.config_flow.FortumAPIClient")
+    @patch("custom_components.mittfortum.api.OAuth2AuthClient")
+    @patch("custom_components.mittfortum.api.FortumAPIClient")
     async def test_validate_input_success(
         self, mock_api_client_class, mock_auth_client_class, mock_hass
     ):
@@ -135,8 +135,8 @@ class TestValidateInput:
         result = await validate_input(mock_hass, data)
         assert result["title"] == "MittFortum (test_user)"
 
-    @patch("custom_components.mittfortum.config_flow.OAuth2AuthClient")
-    @patch("custom_components.mittfortum.config_flow.FortumAPIClient")
+    @patch("custom_components.mittfortum.api.OAuth2AuthClient")
+    @patch("custom_components.mittfortum.api.FortumAPIClient")
     async def test_validate_input_auth_error(
         self, mock_api_client_class, mock_auth_client_class, mock_hass
     ):
@@ -158,8 +158,8 @@ class TestValidateInput:
         with pytest.raises(InvalidAuth):
             await validate_input(mock_hass, data)
 
-    @patch("custom_components.mittfortum.config_flow.OAuth2AuthClient")
-    @patch("custom_components.mittfortum.config_flow.FortumAPIClient")
+    @patch("custom_components.mittfortum.api.OAuth2AuthClient")
+    @patch("custom_components.mittfortum.api.FortumAPIClient")
     async def test_validate_input_api_error(
         self, mock_api_client_class, mock_auth_client_class, mock_hass
     ):
