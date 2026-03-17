@@ -275,7 +275,7 @@ class FortumAPIClient:
         return await self.get_consumption_data()
 
     async def backfill_hourly_consumption_statistics_last_month(self) -> int:
-        """Backfill last month of hourly consumption as external statistics."""
+        """Backfill last month of hourly consumption/cost/price statistics."""
         metering_points = await self.get_metering_points()
         metering_point_nos = [point.metering_point_no for point in metering_points]
         if not metering_point_nos:
@@ -296,11 +296,19 @@ class FortumAPIClient:
 
         imported_points = 0
         for time_series in time_series_list:
-            statistic_id = self._build_consumption_statistic_id(
+            consumption_statistic_id = self._build_consumption_statistic_id(
+                time_series.metering_point_no
+            )
+            cost_statistic_id = self._build_cost_statistic_id(
+                time_series.metering_point_no
+            )
+            price_statistic_id = self._build_price_statistic_id(
                 time_series.metering_point_no
             )
 
-            statistics = []
+            consumption_statistics = []
+            cost_statistics = []
+            price_statistics = []
             for point in sorted(time_series.series, key=lambda item: item.at_utc):
                 point_time = dt_util.as_utc(point.at_utc).replace(
                     minute=0,
@@ -311,7 +319,7 @@ class FortumAPIClient:
                     continue
 
                 consumption_value = float(point.total_energy)
-                statistics.append(
+                consumption_statistics.append(
                     {
                         "start": point_time,
                         "state": consumption_value,
@@ -321,13 +329,37 @@ class FortumAPIClient:
                     }
                 )
 
-            if not statistics:
+                if point.cost:
+                    cost_value = float(point.total_cost)
+                    cost_statistics.append(
+                        {
+                            "start": point_time,
+                            "state": cost_value,
+                            "mean": cost_value,
+                            "min": cost_value,
+                            "max": cost_value,
+                        }
+                    )
+
+                if point.price:
+                    price_value = float(point.price.total)
+                    price_statistics.append(
+                        {
+                            "start": point_time,
+                            "state": price_value,
+                            "mean": price_value,
+                            "min": price_value,
+                            "max": price_value,
+                        }
+                    )
+
+            if not consumption_statistics:
                 continue
 
-            metadata = cast(
+            consumption_metadata = cast(
                 "StatisticMetaData",
                 {
-                    "statistic_id": statistic_id,
+                    "statistic_id": consumption_statistic_id,
                     "source": DOMAIN,
                     "name": (
                         f"MittFortum Hourly Consumption {time_series.metering_point_no}"
@@ -337,11 +369,45 @@ class FortumAPIClient:
                     "has_sum": False,
                 },
             )
+            cost_metadata = cast(
+                "StatisticMetaData",
+                {
+                    "statistic_id": cost_statistic_id,
+                    "source": DOMAIN,
+                    "name": f"MittFortum Hourly Cost {time_series.metering_point_no}",
+                    "unit_of_measurement": time_series.cost_unit,
+                    "has_mean": True,
+                    "has_sum": False,
+                },
+            )
+            price_metadata = cast(
+                "StatisticMetaData",
+                {
+                    "statistic_id": price_statistic_id,
+                    "source": DOMAIN,
+                    "name": f"MittFortum Hourly Price {time_series.metering_point_no}",
+                    "unit_of_measurement": time_series.price_unit,
+                    "has_mean": True,
+                    "has_sum": False,
+                },
+            )
 
-            statistic_rows = cast("list[StatisticData]", statistics)
+            consumption_rows = cast("list[StatisticData]", consumption_statistics)
+            cost_rows = cast("list[StatisticData]", cost_statistics)
+            price_rows = cast("list[StatisticData]", price_statistics)
 
-            async_add_external_statistics(self._hass, metadata, statistic_rows)
-            imported_points += len(statistics)
+            async_add_external_statistics(
+                self._hass, consumption_metadata, consumption_rows
+            )
+            imported_points += len(consumption_statistics)
+
+            if cost_statistics:
+                async_add_external_statistics(self._hass, cost_metadata, cost_rows)
+                imported_points += len(cost_statistics)
+
+            if price_statistics:
+                async_add_external_statistics(self._hass, price_metadata, price_rows)
+                imported_points += len(price_statistics)
 
         return imported_points
 
@@ -352,6 +418,22 @@ class FortumAPIClient:
         if not suffix:
             suffix = "unknown"
         return f"{DOMAIN}:hourly_consumption_{suffix}"
+
+    @staticmethod
+    def _build_cost_statistic_id(metering_point_no: str) -> str:
+        """Build stable cost statistic_id for a metering point."""
+        suffix = re.sub(r"[^0-9a-z_]", "_", metering_point_no.lower()).strip("_")
+        if not suffix:
+            suffix = "unknown"
+        return f"{DOMAIN}:hourly_cost_{suffix}"
+
+    @staticmethod
+    def _build_price_statistic_id(metering_point_no: str) -> str:
+        """Build stable price statistic_id for a metering point."""
+        suffix = re.sub(r"[^0-9a-z_]", "_", metering_point_no.lower()).strip("_")
+        if not suffix:
+            suffix = "unknown"
+        return f"{DOMAIN}:hourly_price_{suffix}"
 
     async def get_price_data(self) -> list[ConsumptionData]:
         """Get near real-time spot price data with future price points."""

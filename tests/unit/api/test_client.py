@@ -1,12 +1,22 @@
 """Unit tests for FortumAPIClient."""
 
+from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from custom_components.mittfortum.api.client import FortumAPIClient
+from custom_components.mittfortum.const import STATISTICS_REQUEST_TIMEOUT_SECONDS
 from custom_components.mittfortum.exceptions import APIError
-from custom_components.mittfortum.models import CustomerDetails
+from custom_components.mittfortum.models import (
+    CostDataPoint,
+    CustomerDetails,
+    EnergyDataPoint,
+    MeteringPoint,
+    Price,
+    TimeSeries,
+    TimeSeriesDataPoint,
+)
 
 
 class TestFortumAPIClient:
@@ -546,3 +556,63 @@ class TestFortumAPIClient:
 
         with pytest.raises(APIError, match="Unexpected redirect to: /other/path"):
             client._handle_redirect_response(mock_response)
+
+    async def test_backfill_hourly_statistics_imports_energy_cost_and_price(
+        self, mock_hass, mock_auth_client
+    ):
+        """Test backfill imports energy, cost, and price from same payload."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+
+        time_series = TimeSeries(
+            delivery_site_category="CONSUMPTION",
+            measurement_unit="kWh",
+            metering_point_no="6094111",
+            price_unit="c/kWh",
+            cost_unit="EUR",
+            temperature_unit="celsius",
+            series=[
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-04T00:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=3.83, type="ENERGY")],
+                    cost=[
+                        CostDataPoint(
+                            total=0.04,
+                            value=0.03,
+                            type="COST_SALES_ELECTRICITY",
+                        )
+                    ],
+                    price=Price(
+                        total=1.01, value=0.80, vat_amount=0.21, vat_percentage=25.5
+                    ),
+                    temperature_reading=None,
+                )
+            ],
+        )
+
+        with (
+            patch.object(
+                client,
+                "get_metering_points",
+                return_value=[MeteringPoint(metering_point_no="6094111")],
+            ),
+            patch.object(
+                client, "get_time_series_data", return_value=[time_series]
+            ) as mock_get_series,
+            patch(
+                "custom_components.mittfortum.api.client.async_add_external_statistics"
+            ) as mock_add_stats,
+        ):
+            imported = await client.backfill_hourly_consumption_statistics_last_month()
+
+        assert imported == 3
+        assert mock_get_series.call_args.kwargs["request_timeout"] == (
+            STATISTICS_REQUEST_TIMEOUT_SECONDS
+        )
+        assert mock_add_stats.call_count == 3
+
+        statistic_ids = [
+            call.args[1]["statistic_id"] for call in mock_add_stats.call_args_list
+        ]
+        assert "mittfortum:hourly_consumption_6094111" in statistic_ids
+        assert "mittfortum:hourly_cost_6094111" in statistic_ids
+        assert "mittfortum:hourly_price_6094111" in statistic_ids
