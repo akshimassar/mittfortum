@@ -113,6 +113,30 @@ class TestFortumAPIClient:
             with pytest.raises(APIError, match="No metering points found"):
                 await client.get_consumption_data()
 
+    async def test_get_consumption_data_passes_region_timezone(
+        self, mock_hass, mock_auth_client
+    ):
+        """Test conversion uses configured region timezone."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        mock_time_series = Mock()
+
+        with (
+            patch.object(
+                client,
+                "get_time_series_data",
+                return_value=[mock_time_series],
+            ),
+            patch(
+                "custom_components.mittfortum.api.client.ConsumptionData.from_time_series",
+                return_value=[],
+            ) as mock_from_time_series,
+        ):
+            await client.get_consumption_data(metering_point_nos=["123"])
+
+        mock_from_time_series.assert_called_once_with(
+            mock_time_series, timezone="Europe/Stockholm"
+        )
+
     async def test_ensure_valid_token_session_based(self, mock_hass, mock_auth_client):
         """Test _ensure_valid_token with session-based token."""
         client = FortumAPIClient(mock_hass, mock_auth_client)

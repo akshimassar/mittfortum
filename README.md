@@ -155,6 +155,24 @@ pytest tests/integration
 pytest --cov=custom_components.mittfortum
 ```
 
+### Live E2E test (manual)
+
+Use this when validating real Fortum account/API behavior (for example while
+adapting region-specific flows):
+
+```bash
+FORTUM_E2E=1 \
+FORTUM_USERNAME="your_username" \
+FORTUM_PASSWORD="your_password" \
+FORTUM_REGION="fi" \
+uv run pytest tests/e2e/test_live_api.py -v
+```
+
+Notes:
+- This test is opt-in and skipped unless `FORTUM_E2E=1` is set.
+- It performs real authentication and API calls.
+- Avoid running it in CI unless secrets are configured.
+
 ### Code Quality
 
 The project uses several tools to maintain code quality:

@@ -19,7 +19,7 @@ from homeassistant.helpers.httpx_client import get_async_client
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-from ..const import OAUTH_CLIENT_ID, OAUTH_REDIRECT_URI, OAUTH_SCOPE, OAUTH_SECRET_KEY
+from ..const import OAUTH_CLIENT_ID, OAUTH_SCOPE, OAUTH_SECRET_KEY
 from ..exceptions import AuthenticationError, OAuth2Error
 from ..models import AuthTokens
 from .endpoints import APIEndpoints
@@ -37,6 +37,7 @@ DEFAULT_TOKEN_EXPIRY_HOURS = (
 FIXED_TOKEN_LIFETIME_SECONDS = 900  # 15 minutes - workaround for server bug
 URGENT_RENEWAL_THRESHOLD_SECONDS = 120  # 2 minutes - reduced for shorter tokens
 DEFAULT_RENEWAL_BUFFER_SECONDS = 120  # 2 minutes - reduced for shorter tokens
+SESSION_VERIFICATION_RETRY_DELAYS = (0.5, 1.0, 2.0, 3.0)
 
 
 class OAuth2AuthClient:
@@ -47,16 +48,19 @@ class OAuth2AuthClient:
         hass: HomeAssistant,
         username: str,
         password: str,
+        region: str = "se",
         client_id: str = OAUTH_CLIENT_ID,
-        redirect_uri: str = OAUTH_REDIRECT_URI,
+        redirect_uri: str | None = None,
         secret_key: str = OAUTH_SECRET_KEY,
     ) -> None:
         """Initialize OAuth2 client."""
         self._hass = hass
         self._username = username
         self._password = password
+        self._region = region
+        self._endpoints = APIEndpoints.for_region(region)
         self._client_id = client_id
-        self._redirect_uri = redirect_uri
+        self._redirect_uri = redirect_uri or self._endpoints.callback_url
         self._secret_key = secret_key
 
         # Token storage
@@ -93,6 +97,11 @@ class OAuth2AuthClient:
     def session_cookies(self) -> dict[str, str]:
         """Get current session cookies."""
         return self._session_cookies
+
+    @property
+    def region(self) -> str:
+        """Get configured market region."""
+        return self._region
 
     def is_token_expired(self, buffer_seconds: int = 0) -> bool:
         """Check if the current token is expired or will expire soon.
@@ -276,14 +285,12 @@ class OAuth2AuthClient:
     async def _initialize_fortum_session(self, client) -> str:
         """Initialize Fortum session and get CSRF token."""
         # Get providers
-        providers_resp = await client.get(
-            "https://www.fortum.com/se/el/api/auth/providers"
-        )
+        providers_resp = await client.get(self._endpoints.providers)
         if providers_resp.status_code != 200:
             raise OAuth2Error(f"Providers fetch failed: {providers_resp.status_code}")
 
         # Get CSRF token
-        csrf_resp = await client.get("https://www.fortum.com/se/el/api/auth/csrf")
+        csrf_resp = await client.get(self._endpoints.csrf)
         if csrf_resp.status_code != 200:
             raise OAuth2Error(f"CSRF fetch failed: {csrf_resp.status_code}")
 
@@ -299,12 +306,12 @@ class OAuth2AuthClient:
         """Initiate OAuth signin and get OAuth URL."""
         signin_data = {
             "csrfToken": csrf_token,
-            "callbackUrl": "https://www.fortum.com/se/el/inloggad/oversikt",
+            "callbackUrl": self._endpoints.callback_page,
             "json": "true",
         }
 
         signin_resp = await client.post(
-            "https://www.fortum.com/se/el/api/auth/signin/ciamprod",
+            self._endpoints.signin,
             json=signin_data,
             headers={"Content-Type": CONTENT_TYPE_JSON},
         )
@@ -343,30 +350,46 @@ class OAuth2AuthClient:
                 "https://sso.fortum.com/am/json/realms/root/realms/alpha/authenticate"
             )
 
-            auth_params = {
-                "locale": "sv",
-                "authIndexType": "service",
-                "authIndexValue": "SeB2COGWLogin",
-                "goto": oauth_url,
-            }
+            init_data: dict[str, Any] | None = None
+            last_status = None
+            auth_full_url = ""
 
-            auth_full_url = f"{auth_url}?{urlencode(auth_params)}"
+            for auth_index_value in self._endpoints.profile.auth_index_values:
+                auth_params = {
+                    "locale": self._endpoints.profile.locale,
+                    "authIndexType": "service",
+                    "authIndexValue": auth_index_value,
+                    "goto": oauth_url,
+                }
+                auth_full_url = f"{auth_url}?{urlencode(auth_params)}"
 
-            # Initialize authentication
-            _LOGGER.debug("Initializing ForgeRock authentication")
-            init_resp = await client.post(
-                auth_full_url,
-                headers={
-                    "accept-api-version": "protocol=1.0,resource=2.1",
-                    "content-type": CONTENT_TYPE_JSON,
-                },
-                json={},
-            )
+                _LOGGER.debug(
+                    "Initializing ForgeRock authentication with authIndexValue=%s",
+                    auth_index_value,
+                )
+                init_resp = await client.post(
+                    auth_full_url,
+                    headers={
+                        "accept-api-version": "protocol=1.0,resource=2.1",
+                        "content-type": CONTENT_TYPE_JSON,
+                    },
+                    json={},
+                )
 
-            if init_resp.status_code != 200:
-                raise OAuth2Error(f"Auth init failed: {init_resp.status_code}")
+                last_status = init_resp.status_code
+                if init_resp.status_code == 200:
+                    init_data = init_resp.json()
+                    break
 
-            init_data = init_resp.json()
+                _LOGGER.warning(
+                    "Auth init failed with authIndexValue=%s status=%s",
+                    auth_index_value,
+                    init_resp.status_code,
+                )
+
+            if init_data is None:
+                raise OAuth2Error(f"Auth init failed: {last_status}")
+
             _LOGGER.debug("Auth init response: %s", init_data)
 
             # Check if authId is present
@@ -420,6 +443,15 @@ class OAuth2AuthClient:
                 login_data.get("tokenId", "None")[:30],
             )
 
+            success_url = login_data.get("successUrl")
+            if success_url:
+                _LOGGER.debug(
+                    "SSO login returned successUrl. "
+                    "Using it for OAuth completion: %s...",
+                    success_url[:80],
+                )
+                return success_url
+
             # Return None to indicate using the original OAuth URL
             return None
 
@@ -437,12 +469,17 @@ class OAuth2AuthClient:
                     "OAuth completion returned %d instead of redirect",
                     oauth_completion_resp.status_code,
                 )
+                # Try a full redirect-following request to finalize session.
+                await client.get(oauth_url, follow_redirects=True)
                 return
 
             # Follow the callback redirect chain
             callback_url = oauth_completion_resp.headers.get("location")
             if not callback_url or AUTHORIZATION_CODE_PARAM not in callback_url:
                 _LOGGER.warning("No authorization code in callback URL")
+                # Different regions may not expose code in first redirect.
+                # Follow full redirect chain to establish authenticated session.
+                await client.get(oauth_url, follow_redirects=True)
                 return
 
             _LOGGER.debug("Following callback URL...")
@@ -465,16 +502,40 @@ class OAuth2AuthClient:
 
     async def _verify_session_established(self, client) -> dict[str, Any]:
         """Verify that session is properly established."""
-        session_resp = await client.get("https://www.fortum.com/se/el/api/auth/session")
+        session_data: dict[str, Any] | None = None
 
-        if session_resp.status_code != 200:
-            raise OAuth2Error(
-                f"Session verification failed: {session_resp.status_code}"
-            )
+        for attempt, delay in enumerate(
+            (0.0, *SESSION_VERIFICATION_RETRY_DELAYS), start=1
+        ):
+            session_resp = await client.get(self._endpoints.session)
 
-        session_data = session_resp.json()
-        if not session_data.get("user"):
+            if session_resp.status_code != 200:
+                raise OAuth2Error(
+                    f"Session verification failed: {session_resp.status_code}"
+                )
+
+            raw_session_data = session_resp.json()
+            if isinstance(raw_session_data, dict):
+                session_data = raw_session_data
+            else:
+                session_data = {}
+
+            if session_data.get("user"):
+                break
+
+            if delay > 0:
+                _LOGGER.info(
+                    "Session user data not available yet "
+                    "(attempt %d), retrying in %.1fs",
+                    attempt,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+        else:
             raise OAuth2Error("No user data in session")
+
+        if session_data is None:
+            raise OAuth2Error("Invalid session data response")
 
         _LOGGER.debug("Session verified successfully")
 
@@ -514,7 +575,7 @@ class OAuth2AuthClient:
             _LOGGER.debug("Attempting to refresh access token")
             async with get_async_client(self._hass) as client:
                 response = await client.post(
-                    APIEndpoints.TOKEN_EXCHANGE,
+                    self._endpoints.token_exchange,
                     data={
                         "grant_type": "refresh_token",
                         "refresh_token": self._tokens.refresh_token,
@@ -582,8 +643,8 @@ class OAuth2AuthClient:
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
             "acr_values": "seb2cogwlogin",
-            "locale": "sv",
-            "ui_locales": "sv",
+            "locale": self._endpoints.profile.locale,
+            "ui_locales": self._endpoints.profile.ui_locale,
             "acr": "seb2cogwlogin",
             "response_mode": "query",
         }
@@ -592,7 +653,7 @@ class OAuth2AuthClient:
     async def _fetch_openid_configuration(self) -> dict[str, Any]:
         """Fetch OpenID configuration."""
         async with get_async_client(self._hass) as client:
-            response = await client.get(APIEndpoints.OPENID_CONFIG)
+            response = await client.get(self._endpoints.openid_config)
             if response.status_code != 200:
                 raise OAuth2Error(
                     f"Failed to fetch OpenID config: {response.status_code}"
@@ -608,7 +669,7 @@ class OAuth2AuthClient:
     async def _authenticate_user(self, client) -> dict[str, Any]:
         """Authenticate user with credentials."""
         # Get auth ID
-        response = await client.post(APIEndpoints.AUTH_INIT)
+        response = await client.post(self._endpoints.auth_init)
         if response.status_code != 200:
             raise OAuth2Error(f"Auth initiation failed: {response.status_code}")
 
@@ -647,7 +708,7 @@ class OAuth2AuthClient:
             ],
         }
 
-        response = await client.post(APIEndpoints.AUTH_INIT, json=login_payload)
+        response = await client.post(self._endpoints.auth_init, json=login_payload)
         if response.status_code != 200:
             raise OAuth2Error(f"User authentication failed: {response.status_code}")
 
@@ -656,7 +717,7 @@ class OAuth2AuthClient:
     async def _get_user_session(self, client) -> dict[str, Any]:
         """Get user session information."""
         response = await client.post(
-            APIEndpoints.USER_SESSION,
+            self._endpoints.user_session,
             headers={"accept-api-version": "protocol=1.0,resource=2.0"},
             json={},
         )
@@ -666,7 +727,7 @@ class OAuth2AuthClient:
 
     async def _fetch_user_details(self, client, user_id: str) -> dict[str, Any]:
         """Fetch user details."""
-        url = APIEndpoints.get_user_details_url(user_id)
+        url = self._endpoints.get_user_details_url(user_id)
         response = await client.get(url)
         if response.status_code != 200:
             raise OAuth2Error(f"User details fetch failed: {response.status_code}")
@@ -683,11 +744,12 @@ class OAuth2AuthClient:
             f"state={state}&code_challenge={code_challenge}&"
             f"code_challenge_method=S256&response_mode=query&"
             f"acr_values=seb2cogwlogin&acr=seb2cogwlogin&"
-            f"locale=sv&ui_locales=sv"
+            f"locale={self._endpoints.profile.locale}&"
+            f"ui_locales={self._endpoints.profile.ui_locale}"
         )
 
         response = await client.post(
-            APIEndpoints.VALIDATE_GOTO,
+            self._endpoints.validate_goto,
             headers={"accept-api-version": "protocol=2.1,resource=3.0"},
             json={"goto": goto_url},
         )
@@ -725,7 +787,7 @@ class OAuth2AuthClient:
     ) -> AuthTokens:
         """Exchange authorization code for access tokens."""
         response = await client.post(
-            APIEndpoints.TOKEN_EXCHANGE,
+            self._endpoints.token_exchange,
             data={
                 "grant_type": "authorization_code",
                 "redirect_uri": self._redirect_uri,
@@ -746,7 +808,7 @@ class OAuth2AuthClient:
         """Validate that the session works against actual API endpoints."""
         try:
             # Test against the session endpoint that the client actually uses
-            test_url = "https://www.fortum.com/se/el/api/auth/session"
+            test_url = self._endpoints.session
             response = await client.get(test_url)
 
             if response.status_code == 200:

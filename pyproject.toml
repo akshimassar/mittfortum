@@ -67,6 +67,7 @@ addopts = [
 markers = [
     "unit: Unit tests",
     "integration: Integration tests",
+    "e2e: Live end-to-end tests against Fortum",
     "slow: Slow running tests",
 ]
 asyncio_mode = "auto"

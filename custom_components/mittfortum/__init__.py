@@ -14,7 +14,7 @@ from .api import FortumAPIClient, OAuth2AuthClient
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
-from .const import DOMAIN, PLATFORMS
+from .const import CONF_REGION, DEFAULT_REGION, DOMAIN, PLATFORMS
 from .coordinator import MittFortumDataCoordinator
 from .device import MittFortumDevice
 from .exceptions import AuthenticationError, MittFortumError
@@ -29,6 +29,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Get credentials from config entry
     username = entry.data[CONF_USERNAME]
     password = entry.data[CONF_PASSWORD]
+    region = entry.data.get(CONF_REGION, DEFAULT_REGION)
 
     try:
         # Initialize authentication client
@@ -36,6 +37,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass=hass,
             username=username,
             password=password,
+            region=region,
         )
 
         # Perform initial authentication

@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers.httpx_client import get_async_client
 
-from ..const import SESSION_URL
 from ..exceptions import APIError, InvalidResponseError, UnexpectedStatusCodeError
 from ..models import ConsumptionData, CustomerDetails, MeteringPoint, TimeSeries
 from .endpoints import APIEndpoints
@@ -32,6 +31,7 @@ class FortumAPIClient:
         """Initialize API client."""
         self._hass = hass
         self._auth_client = auth_client
+        self._endpoints = APIEndpoints.for_region(getattr(auth_client, "region", "se"))
 
     async def get_customer_id(self) -> str:
         """Extract customer ID from session data or ID token."""
@@ -62,7 +62,7 @@ class FortumAPIClient:
 
     async def get_customer_details(self) -> CustomerDetails:
         """Fetch customer details using session endpoint."""
-        response = await self._get(SESSION_URL)
+        response = await self._get(self._endpoints.session)
 
         try:
             json_data = response.json()
@@ -74,7 +74,7 @@ class FortumAPIClient:
 
     async def get_metering_points(self) -> list[MeteringPoint]:
         """Fetch metering points from session endpoint."""
-        response = await self._get(SESSION_URL)
+        response = await self._get(self._endpoints.session)
 
         try:
             json_data = response.json()
@@ -144,7 +144,7 @@ class FortumAPIClient:
         resolution: str,
     ) -> list[TimeSeries]:
         """Internal method to fetch time series data."""
-        url = APIEndpoints.get_time_series_url(
+        url = self._endpoints.get_time_series_url(
             metering_point_nos=metering_point_nos,
             from_date=from_date,
             to_date=to_date,
@@ -164,9 +164,16 @@ class FortumAPIClient:
             data = await self._parse_trpc_response(response)
 
             if isinstance(data, list):
-                return [TimeSeries.from_api_response(item) for item in data]
+                parsed_series = []
+                for item in data:
+                    if not isinstance(item, dict):
+                        raise TypeError("Time series list contains non-object entries")
+                    parsed_series.append(TimeSeries.from_api_response(item))
+                return parsed_series
             else:
                 # Single time series
+                if not isinstance(data, dict):
+                    raise TypeError("Time series response item is not an object")
                 return [TimeSeries.from_api_response(data)]
 
         except (ValueError, KeyError, TypeError) as exc:
@@ -197,7 +204,11 @@ class FortumAPIClient:
         # Convert time series to consumption data
         consumption_data = []
         for time_series in time_series_list:
-            consumption_data.extend(ConsumptionData.from_time_series(time_series))
+            consumption_data.extend(
+                ConsumptionData.from_time_series(
+                    time_series, timezone=self._endpoints.profile.timezone
+                )
+            )
 
         return consumption_data
 
@@ -281,7 +292,7 @@ class FortumAPIClient:
                         "Gecko/20100101 Firefox/138.0"
                     ),
                     "Content-Type": "application/json",
-                    "Referer": "https://www.fortum.com/se/el/inloggad/el",
+                    "Referer": self._endpoints.referer,
                 }
 
                 # Only add Authorization header for non-session endpoints
@@ -361,7 +372,7 @@ class FortumAPIClient:
             _LOGGER.debug("API error (no retry): %s", exc)
             raise
 
-    async def _parse_trpc_response(self, response: Any) -> dict[str, Any]:
+    async def _parse_trpc_response(self, response: Any) -> Any:
         """Parse tRPC response format."""
         try:
             json_data = response.json()
@@ -537,7 +548,7 @@ class FortumAPIClient:
         """Test API connection and return status information."""
         try:
             # Test session endpoint first
-            session_response = await self._get(SESSION_URL)
+            session_response = await self._get(self._endpoints.session)
             session_data = session_response.json()
 
             # Check if we have user data

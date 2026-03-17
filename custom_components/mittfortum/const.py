@@ -8,6 +8,9 @@ from homeassistant.const import Platform
 
 # Integration domain
 DOMAIN = "mittfortum"
+CONF_REGION = "region"
+DEFAULT_REGION = "se"
+SUPPORTED_REGIONS = ["se", "fi"]
 
 # Platforms
 PLATFORMS: list[Platform] = [Platform.SENSOR]

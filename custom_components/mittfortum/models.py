@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 @dataclass
@@ -183,15 +184,22 @@ class ConsumptionData:
     unit: str = "kWh"
 
     @classmethod
-    def from_time_series(cls, time_series: TimeSeries) -> list[ConsumptionData]:
+    def from_time_series(
+        cls, time_series: TimeSeries, timezone: str | None = None
+    ) -> list[ConsumptionData]:
         """Create consumption data list from time series."""
         consumption_data = []
+        local_timezone = ZoneInfo(timezone) if timezone else None
 
         for point in time_series.series:
             if point.energy and any(e.value > 0 for e in point.energy):
+                point_datetime = point.at_utc
+                if local_timezone is not None:
+                    point_datetime = point_datetime.astimezone(local_timezone)
+
                 consumption_data.append(
                     cls(
-                        date_time=point.at_utc,
+                        date_time=point_datetime,
                         value=point.total_energy,
                         cost=point.total_cost if point.cost else None,
                         unit=time_series.measurement_unit,

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from custom_components.mittfortum.api.auth import OAuth2AuthClient
-from custom_components.mittfortum.exceptions import AuthenticationError
+from custom_components.mittfortum.exceptions import AuthenticationError, OAuth2Error
 
 
 class TestOAuth2AuthClient:
@@ -100,6 +100,7 @@ class TestOAuth2AuthClient:
 
             assert result.access_token == "test_access_token"
             assert result.id_token == "test_id_token"
+            assert client._tokens is not None
             assert client._tokens.access_token == "test_access_token"
 
     async def test_authenticate_failure(self, mock_hass):
@@ -260,3 +261,72 @@ class TestOAuth2AuthClient:
                 # Verify session data was returned correctly
                 assert result == mock_session_data
                 assert result["user"]["id"] == "test_user"
+
+    async def test_verify_session_retries_until_user_available(self, mock_hass):
+        """Test session verification retries when user data is delayed."""
+        client = OAuth2AuthClient(
+            hass=mock_hass,
+            username="test@example.com",
+            password="test_password",
+        )
+
+        empty_session_response = Mock()
+        empty_session_response.status_code = 200
+        empty_session_response.json.return_value = {}
+
+        valid_session = {
+            "user": {
+                "id": "test_user",
+                "accessToken": "test_access_token",
+            }
+        }
+        valid_session_response = Mock()
+        valid_session_response.status_code = 200
+        valid_session_response.json.return_value = valid_session
+
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = [
+            empty_session_response,
+            empty_session_response,
+            valid_session_response,
+        ]
+
+        with patch("custom_components.mittfortum.api.auth.asyncio.sleep") as mock_sleep:
+            mock_sleep.return_value = None
+            with patch.object(
+                client, "_validate_session_against_api", return_value=True
+            ):
+                result = await client._verify_session_established(mock_client)
+
+        assert result == valid_session
+        assert mock_client.get.call_count == 3
+        assert mock_sleep.call_args_list[0][0][0] == 0.5
+        assert mock_sleep.call_args_list[1][0][0] == 3.0
+
+    async def test_verify_session_raises_when_user_never_available(self, mock_hass):
+        """Test session verification fails after all retries are exhausted."""
+        client = OAuth2AuthClient(
+            hass=mock_hass,
+            username="test@example.com",
+            password="test_password",
+        )
+
+        empty_session_response = Mock()
+        empty_session_response.status_code = 200
+        empty_session_response.json.return_value = {}
+
+        mock_client = AsyncMock()
+        mock_client.get.return_value = empty_session_response
+
+        with patch("custom_components.mittfortum.api.auth.asyncio.sleep") as mock_sleep:
+            mock_sleep.return_value = None
+            with pytest.raises(OAuth2Error, match="No user data in session"):
+                await client._verify_session_established(mock_client)
+
+        assert mock_client.get.call_count == 5
+        assert [call[0][0] for call in mock_sleep.call_args_list] == [
+            0.5,
+            1.0,
+            2.0,
+            3.0,
+        ]

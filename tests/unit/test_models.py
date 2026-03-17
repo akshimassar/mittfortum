@@ -1,12 +1,17 @@
 """Test data models."""
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from custom_components.mittfortum.models import (
     AuthTokens,
     ConsumptionData,
+    CostDataPoint,
     CustomerDetails,
+    EnergyDataPoint,
     MeteringPoint,
+    TimeSeries,
+    TimeSeriesDataPoint,
 )
 
 
@@ -49,6 +54,60 @@ class TestConsumptionData:
         data2 = ConsumptionData(value=150.5, unit="kWh", date_time=now, cost=25.50)
 
         assert data1 == data2
+
+    def test_from_time_series_uses_local_timezone(self):
+        """Test timezone conversion for time series consumption data."""
+        time_series = TimeSeries(
+            delivery_site_category="test",
+            measurement_unit="kWh",
+            metering_point_no="123",
+            price_unit="c/kWh",
+            cost_unit="EUR",
+            temperature_unit="C",
+            series=[
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-01T22:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=77.86, type="ENERGY")],
+                    cost=[CostDataPoint(total=10.19, value=10.19, type="COST")],
+                    price=None,
+                    temperature_reading=None,
+                )
+            ],
+        )
+
+        result = ConsumptionData.from_time_series(
+            time_series, timezone="Europe/Helsinki"
+        )
+
+        assert len(result) == 1
+        assert result[0].date_time.tzinfo == ZoneInfo("Europe/Helsinki")
+        assert result[0].date_time.date().isoformat() == "2026-03-02"
+
+    def test_from_time_series_without_timezone_keeps_utc(self):
+        """Test time series consumption data keeps UTC when timezone omitted."""
+        source_dt = datetime.fromisoformat("2026-03-01T22:00:00+00:00")
+        time_series = TimeSeries(
+            delivery_site_category="test",
+            measurement_unit="kWh",
+            metering_point_no="123",
+            price_unit="c/kWh",
+            cost_unit="EUR",
+            temperature_unit="C",
+            series=[
+                TimeSeriesDataPoint(
+                    at_utc=source_dt,
+                    energy=[EnergyDataPoint(value=77.86, type="ENERGY")],
+                    cost=None,
+                    price=None,
+                    temperature_reading=None,
+                )
+            ],
+        )
+
+        result = ConsumptionData.from_time_series(time_series)
+
+        assert len(result) == 1
+        assert result[0].date_time == source_dt
 
 
 class TestCustomerDetails:
