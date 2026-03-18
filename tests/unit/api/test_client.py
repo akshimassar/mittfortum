@@ -14,6 +14,7 @@ from custom_components.mittfortum.models import (
     EnergyDataPoint,
     MeteringPoint,
     Price,
+    TemperatureReading,
     TimeSeries,
     TimeSeriesDataPoint,
 )
@@ -584,7 +585,7 @@ class TestFortumAPIClient:
                     price=Price(
                         total=1.01, value=0.80, vat_amount=0.21, vat_percentage=25.5
                     ),
-                    temperature_reading=None,
+                    temperature_reading=TemperatureReading(temperature=2.2),
                 ),
                 TimeSeriesDataPoint(
                     at_utc=datetime.fromisoformat("2026-03-04T01:00:00+00:00"),
@@ -614,11 +615,11 @@ class TestFortumAPIClient:
         ):
             imported = await client.backfill_hourly_consumption_statistics_last_month()
 
-        assert imported == 3
+        assert imported == 4
         assert mock_get_series.call_args.kwargs["request_timeout"] == (
             STATISTICS_REQUEST_TIMEOUT_SECONDS
         )
-        assert mock_add_stats.call_count == 3
+        assert mock_add_stats.call_count == 4
         assert mock_get_series.call_count == 1
 
         statistic_ids = [
@@ -627,6 +628,7 @@ class TestFortumAPIClient:
         assert "mittfortum:hourly_consumption_6094111" in statistic_ids
         assert "mittfortum:hourly_cost_6094111" in statistic_ids
         assert "mittfortum:hourly_price_6094111" in statistic_ids
+        assert "mittfortum:hourly_temperature_6094111" in statistic_ids
 
         for call in mock_add_stats.call_args_list:
             assert len(call.args[2]) == 1
@@ -800,5 +802,5 @@ class TestFortumAPIClient:
         ):
             cleared = await client.clear_hourly_statistics()
 
-        assert cleared == 3
+        assert cleared == 4
         recorder_instance.async_clear_statistics.assert_called_once()

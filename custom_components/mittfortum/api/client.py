@@ -347,6 +347,7 @@ class FortumAPIClient:
                     self._build_consumption_statistic_id(point.metering_point_no),
                     self._build_cost_statistic_id(point.metering_point_no),
                     self._build_price_statistic_id(point.metering_point_no),
+                    self._build_temperature_statistic_id(point.metering_point_no),
                 ]
             )
 
@@ -510,10 +511,14 @@ class FortumAPIClient:
             price_statistic_id = self._build_price_statistic_id(
                 time_series.metering_point_no
             )
+            temperature_statistic_id = self._build_temperature_statistic_id(
+                time_series.metering_point_no
+            )
 
             consumption_statistics = []
             cost_statistics = []
             price_statistics = []
+            temperature_statistics = []
             first_missing_price_at: datetime | None = None
             ordered_points = sorted(
                 time_series.series,
@@ -583,12 +588,25 @@ class FortumAPIClient:
                         }
                     )
 
+                if point.temperature_reading is not None:
+                    temperature_value = float(point.temperature_reading.temperature)
+                    temperature_statistics.append(
+                        {
+                            "start": point_time,
+                            "state": temperature_value,
+                            "mean": temperature_value,
+                            "min": temperature_value,
+                            "max": temperature_value,
+                        }
+                    )
+
             if not consumption_statistics:
                 continue
 
             consumption_statistics.sort(key=lambda row: row["start"])
             cost_statistics.sort(key=lambda row: row["start"])
             price_statistics.sort(key=lambda row: row["start"])
+            temperature_statistics.sort(key=lambda row: row["start"])
 
             consumption_metadata = cast(
                 "StatisticMetaData",
@@ -631,10 +649,28 @@ class FortumAPIClient:
                     "has_sum": False,
                 },
             )
+            temperature_metadata = cast(
+                "StatisticMetaData",
+                {
+                    "statistic_id": temperature_statistic_id,
+                    "source": DOMAIN,
+                    "name": (
+                        f"MittFortum Hourly Temperature {time_series.metering_point_no}"
+                    ),
+                    "unit_of_measurement": self._normalize_temperature_unit(
+                        time_series.temperature_unit
+                    ),
+                    "unit_class": "temperature",
+                    "has_mean": True,
+                    "mean_type": StatisticMeanType.ARITHMETIC,
+                    "has_sum": False,
+                },
+            )
 
             consumption_rows = cast("list[StatisticData]", consumption_statistics)
             cost_rows = cast("list[StatisticData]", cost_statistics)
             price_rows = cast("list[StatisticData]", price_statistics)
+            temperature_rows = cast("list[StatisticData]", temperature_statistics)
 
             async_add_external_statistics(
                 self._hass, consumption_metadata, consumption_rows
@@ -648,6 +684,14 @@ class FortumAPIClient:
             if price_statistics:
                 async_add_external_statistics(self._hass, price_metadata, price_rows)
                 imported_points += len(price_statistics)
+
+            if temperature_statistics:
+                async_add_external_statistics(
+                    self._hass,
+                    temperature_metadata,
+                    temperature_rows,
+                )
+                imported_points += len(temperature_statistics)
 
         return imported_points
 
@@ -674,6 +718,26 @@ class FortumAPIClient:
         if not suffix:
             suffix = "unknown"
         return f"{DOMAIN}:hourly_price_{suffix}"
+
+    @staticmethod
+    def _build_temperature_statistic_id(metering_point_no: str) -> str:
+        """Build stable temperature statistic_id for a metering point."""
+        suffix = re.sub(r"[^0-9a-z_]", "_", metering_point_no.lower()).strip("_")
+        if not suffix:
+            suffix = "unknown"
+        return f"{DOMAIN}:hourly_temperature_{suffix}"
+
+    @staticmethod
+    def _normalize_temperature_unit(unit: str) -> str:
+        """Normalize API temperature unit to Home Assistant convention."""
+        normalized = unit.strip().lower()
+        if normalized == "celsius":
+            return "°C"
+        if normalized == "fahrenheit":
+            return "°F"
+        if normalized == "kelvin":
+            return "K"
+        return unit
 
     async def get_price_data(self) -> list[ConsumptionData]:
         """Get near real-time spot price data with future price points."""
