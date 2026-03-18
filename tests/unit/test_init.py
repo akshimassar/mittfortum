@@ -36,10 +36,10 @@ class TestInit:
             patch("custom_components.mittfortum.FortumAPIClient") as mock_api,
             patch("custom_components.mittfortum.MittFortumDevice") as mock_device,
             patch(
-                "custom_components.mittfortum.HourlyConsumptionCoordinator"
+                "custom_components.mittfortum.HourlyConsumptionSyncScheduler"
             ) as mock_coordinator,
             patch(
-                "custom_components.mittfortum.SpotPriceCoordinator"
+                "custom_components.mittfortum.SpotPriceSyncScheduler"
             ) as mock_price_coordinator,
         ):
             mock_auth_instance = AsyncMock()

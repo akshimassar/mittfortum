@@ -527,9 +527,11 @@ async def test_live_integration_setup_under_five_seconds(
     started = perf_counter()
     with (
         patch(
-            "custom_components.mittfortum.HourlyConsumptionCoordinator"
+            "custom_components.mittfortum.HourlyConsumptionSyncScheduler"
         ) as mock_coord,
-        patch("custom_components.mittfortum.SpotPriceCoordinator") as mock_price_coord,
+        patch(
+            "custom_components.mittfortum.SpotPriceSyncScheduler"
+        ) as mock_price_coord,
     ):
         mock_coord.return_value = AsyncMock()
         mock_price_coord.return_value = AsyncMock()

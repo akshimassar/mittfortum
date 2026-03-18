@@ -12,8 +12,8 @@ from ..entity import MittFortumEntity
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from ..coordinator import HourlyConsumptionCoordinator
     from ..device import MittFortumDevice
+    from ..schedulers import HourlyConsumptionSyncScheduler
 
 
 class MittFortumStatisticsSyncSensor(MittFortumEntity, SensorEntity):
@@ -21,7 +21,7 @@ class MittFortumStatisticsSyncSensor(MittFortumEntity, SensorEntity):
 
     def __init__(
         self,
-        coordinator: HourlyConsumptionCoordinator,
+        coordinator: HourlyConsumptionSyncScheduler,
         device: MittFortumDevice,
     ) -> None:
         """Initialize statistics sync sensor."""

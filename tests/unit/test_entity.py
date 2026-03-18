@@ -4,15 +4,15 @@ from unittest.mock import Mock
 
 import pytest
 
-from custom_components.mittfortum.coordinator import HourlyConsumptionCoordinator
 from custom_components.mittfortum.device import MittFortumDevice
 from custom_components.mittfortum.entity import MittFortumEntity
+from custom_components.mittfortum.schedulers import HourlyConsumptionSyncScheduler
 
 
 @pytest.fixture
 def mock_coordinator():
     """Create a mock coordinator."""
-    return Mock(spec=HourlyConsumptionCoordinator)
+    return Mock(spec=HourlyConsumptionSyncScheduler)
 
 
 @pytest.fixture

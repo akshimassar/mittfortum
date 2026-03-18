@@ -28,13 +28,13 @@ from .const import (
     DOMAIN,
     PLATFORMS,
 )
-from .coordinator import (
-    HourlyConsumptionCoordinator,
-    SpotPriceCoordinator,
-)
 from .device import MittFortumDevice
 from .exceptions import AuthenticationError, MittFortumError
 from .models import MeteringPoint
+from .schedulers import (
+    HourlyConsumptionSyncScheduler,
+    SpotPriceSyncScheduler,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -84,8 +84,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         device = MittFortumDevice(customer_id)
 
         # Create data coordinator
-        coordinator = HourlyConsumptionCoordinator(hass, api_client)
-        price_coordinator = SpotPriceCoordinator(hass, api_client)
+        coordinator = HourlyConsumptionSyncScheduler(hass, api_client)
+        price_coordinator = SpotPriceSyncScheduler(hass, api_client)
 
         # Store coordinator and device for platforms
         hass.data[DOMAIN][entry.entry_id] = {
@@ -206,8 +206,8 @@ def _extract_customer_id_from_session(
 
 async def _async_post_setup_refreshes(
     entry: ConfigEntry,
-    coordinator: HourlyConsumptionCoordinator,
-    price_coordinator: SpotPriceCoordinator,
+    coordinator: HourlyConsumptionSyncScheduler,
+    price_coordinator: SpotPriceSyncScheduler,
 ) -> None:
     """Run data refreshes asynchronously after integration setup returns."""
     try:
@@ -234,8 +234,8 @@ async def _async_post_setup_refreshes(
 def _schedule_post_setup_refreshes(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    coordinator: HourlyConsumptionCoordinator,
-    price_coordinator: SpotPriceCoordinator,
+    coordinator: HourlyConsumptionSyncScheduler,
+    price_coordinator: SpotPriceSyncScheduler,
 ) -> None:
     """Schedule post-setup refreshes after HA startup completes."""
 

@@ -1,4 +1,4 @@
-"""Data update coordinator for MittFortum integration."""
+"""Data update schedulers for MittFortum integration."""
 
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-class HourlyConsumptionCoordinator(DataUpdateCoordinator[list[ConsumptionData]]):
-    """Coordinator for hourly statistics sync."""
+class HourlyConsumptionSyncScheduler(DataUpdateCoordinator[list[ConsumptionData]]):
+    """Scheduler for hourly statistics sync."""
 
     def __init__(
         self,
@@ -29,7 +29,7 @@ class HourlyConsumptionCoordinator(DataUpdateCoordinator[list[ConsumptionData]])
         api_client: FortumAPIClient,
         update_interval: timedelta = DEFAULT_UPDATE_INTERVAL,
     ) -> None:
-        """Initialize coordinator."""
+        """Initialize scheduler."""
         super().__init__(
             hass,
             _LOGGER,
@@ -62,7 +62,7 @@ class HourlyConsumptionCoordinator(DataUpdateCoordinator[list[ConsumptionData]])
     async def _async_update_data(self) -> list[ConsumptionData]:
         """Fetch data from API."""
         try:
-            _LOGGER.debug("HourlyConsumptionCoordinator._async_update_data: start")
+            _LOGGER.debug("HourlyConsumptionSyncScheduler._async_update_data: start")
             data: list[ConsumptionData] = []
 
             try:
@@ -71,31 +71,31 @@ class HourlyConsumptionCoordinator(DataUpdateCoordinator[list[ConsumptionData]])
                 )
             except APIError as exc:
                 _LOGGER.warning(
-                    "HourlyConsumptionCoordinator._async_update_data: failed: %s",
+                    "HourlyConsumptionSyncScheduler._async_update_data: failed: %s",
                     exc,
                 )
             else:
                 _LOGGER.debug(
-                    "HourlyConsumptionCoordinator._async_update_data: "
+                    "HourlyConsumptionSyncScheduler._async_update_data: "
                     "processed_points=%d",
                     imported_points,
                 )
         except APIError as exc:
             _LOGGER.exception(
-                "HourlyConsumptionCoordinator._async_update_data: API error"
+                "HourlyConsumptionSyncScheduler._async_update_data: API error"
             )
             raise UpdateFailed(f"API error: {exc}") from exc
         except Exception as exc:
             _LOGGER.exception(
-                "HourlyConsumptionCoordinator._async_update_data: unexpected error"
+                "HourlyConsumptionSyncScheduler._async_update_data: unexpected error"
             )
             raise UpdateFailed(f"Unexpected error: {exc}") from exc
         else:
             return data
 
 
-class SpotPriceCoordinator(DataUpdateCoordinator[list[ConsumptionData]]):
-    """Coordinator for near-real-time spot price refreshes."""
+class SpotPriceSyncScheduler(DataUpdateCoordinator[list[ConsumptionData]]):
+    """Scheduler for near-real-time spot price refreshes."""
 
     def __init__(
         self,
@@ -103,7 +103,7 @@ class SpotPriceCoordinator(DataUpdateCoordinator[list[ConsumptionData]]):
         api_client: FortumAPIClient,
         update_interval: timedelta = PRICE_UPDATE_INTERVAL,
     ) -> None:
-        """Initialize price coordinator."""
+        """Initialize price scheduler."""
         super().__init__(
             hass,
             _LOGGER,
@@ -115,20 +115,20 @@ class SpotPriceCoordinator(DataUpdateCoordinator[list[ConsumptionData]]):
     async def _async_update_data(self) -> list[ConsumptionData]:
         """Fetch price data from API."""
         try:
-            _LOGGER.debug("SpotPriceCoordinator._async_update_data: start")
+            _LOGGER.debug("SpotPriceSyncScheduler._async_update_data: start")
             data = await self.api_client.get_price_data()
             if data is None:
                 data = []
             _LOGGER.debug(
-                "SpotPriceCoordinator._async_update_data: fetched_records=%d",
+                "SpotPriceSyncScheduler._async_update_data: fetched_records=%d",
                 len(data),
             )
         except APIError as exc:
-            _LOGGER.exception("SpotPriceCoordinator._async_update_data: API error")
+            _LOGGER.exception("SpotPriceSyncScheduler._async_update_data: API error")
             raise UpdateFailed(f"API error: {exc}") from exc
         except Exception as exc:
             _LOGGER.exception(
-                "SpotPriceCoordinator._async_update_data: unexpected error"
+                "SpotPriceSyncScheduler._async_update_data: unexpected error"
             )
             raise UpdateFailed(f"Unexpected error: {exc}") from exc
         else:
