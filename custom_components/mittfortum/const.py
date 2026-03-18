@@ -10,8 +10,10 @@ from homeassistant.const import Platform
 DOMAIN = "mittfortum"
 CONF_REGION = "region"
 CONF_DEBUG_ENTITIES = "debug_entities"
+CONF_DEBUG_LOGGING = "debug_logging"
 DEFAULT_REGION = "se"
 DEFAULT_DEBUG_ENTITIES = False
+DEFAULT_DEBUG_LOGGING = False
 SUPPORTED_REGIONS = ["se", "fi"]
 REGION_CURRENCY = {
     "se": "SEK",

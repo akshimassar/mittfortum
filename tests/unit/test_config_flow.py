@@ -14,7 +14,11 @@ from custom_components.mittfortum.config_flow import (
     OptionsFlowHandler,
     validate_input,
 )
-from custom_components.mittfortum.const import CONF_DEBUG_ENTITIES, CONF_REGION
+from custom_components.mittfortum.const import (
+    CONF_DEBUG_ENTITIES,
+    CONF_DEBUG_LOGGING,
+    CONF_REGION,
+)
 from custom_components.mittfortum.exceptions import AuthenticationError, MittFortumError
 
 
@@ -224,9 +228,13 @@ class TestMittFortumOptionsFlow:
                 CONF_PASSWORD: "new_pass",
                 CONF_REGION: "fi",
                 CONF_DEBUG_ENTITIES: True,
+                CONF_DEBUG_LOGGING: True,
             }
         )
 
         assert result.get("type") == FlowResultType.CREATE_ENTRY
-        assert result.get("data") == {CONF_DEBUG_ENTITIES: True}
+        assert result.get("data") == {
+            CONF_DEBUG_ENTITIES: True,
+            CONF_DEBUG_LOGGING: True,
+        }
         flow.hass.config_entries.async_update_entry.assert_called_once()

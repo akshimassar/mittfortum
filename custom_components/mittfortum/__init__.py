@@ -14,7 +14,14 @@ from .api import FortumAPIClient, OAuth2AuthClient
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
-from .const import CONF_REGION, DEFAULT_REGION, DOMAIN, PLATFORMS
+from .const import (
+    CONF_DEBUG_LOGGING,
+    CONF_REGION,
+    DEFAULT_DEBUG_LOGGING,
+    DEFAULT_REGION,
+    DOMAIN,
+    PLATFORMS,
+)
 from .coordinator import MittFortumDataCoordinator, MittFortumPriceCoordinator
 from .device import MittFortumDevice
 from .exceptions import AuthenticationError, MittFortumError
@@ -25,6 +32,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up MittFortum from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+    _apply_debug_logging(entry)
 
     # Get credentials from config entry
     username = entry.data[CONF_USERNAME]
@@ -127,3 +135,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update by reloading the config entry."""
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+def _apply_debug_logging(entry: ConfigEntry) -> None:
+    """Apply integration logger level from options."""
+    debug_enabled = entry.options.get(CONF_DEBUG_LOGGING, DEFAULT_DEBUG_LOGGING)
+    logger = logging.getLogger(f"custom_components.{DOMAIN}")
+    logger.setLevel(logging.DEBUG if debug_enabled else logging.INFO)

@@ -17,5 +17,18 @@
         }
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "username": "Fortum username",
+          "password": "Fortum password",
+          "region": "Fortum region (se or fi)",
+          "debug_entities": "Debug entities",
+          "debug_logging": "Enable debug logging"
+        }
+      }
+    }
   }
 }

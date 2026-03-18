@@ -25,7 +25,8 @@
           "username": "Fortum username",
           "password": "Fortum password",
           "region": "Fortum region",
-          "debug_entities": "Debug entities"
+          "debug_entities": "Debug entities",
+          "debug_logging": "Enable debug logging"
         }
       }
     }

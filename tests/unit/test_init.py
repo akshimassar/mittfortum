@@ -1,12 +1,17 @@
 """Test __init__.py module."""
 
+import logging
 from unittest.mock import AsyncMock, Mock, patch
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
-from custom_components.mittfortum import async_setup_entry, async_unload_entry
-from custom_components.mittfortum.const import DOMAIN
+from custom_components.mittfortum import (
+    _apply_debug_logging,
+    async_setup_entry,
+    async_unload_entry,
+)
+from custom_components.mittfortum.const import CONF_DEBUG_LOGGING, DOMAIN
 
 
 class TestInit:
@@ -20,6 +25,7 @@ class TestInit:
             CONF_PASSWORD: "test_password",
         }
         entry.entry_id = "test_entry_id"
+        entry.options = {}
         entry.add_update_listener = Mock(return_value=Mock())
         entry.async_on_unload = Mock()
 
@@ -69,6 +75,7 @@ class TestInit:
             CONF_USERNAME: "test@example.com",
             CONF_PASSWORD: "wrong_password",
         }
+        entry.options = {}
         entry.add_update_listener = Mock(return_value=Mock())
         entry.async_on_unload = Mock()
 
@@ -108,3 +115,16 @@ class TestInit:
 
         assert result is False
         assert entry.entry_id in mock_hass.data[DOMAIN]  # Should still be there
+
+    def test_apply_debug_logging_uses_options_toggle(self):
+        """Test debug logging level is applied from options."""
+        entry = Mock(spec=ConfigEntry)
+        entry.options = {CONF_DEBUG_LOGGING: True}
+
+        with patch("custom_components.mittfortum.logging.getLogger") as mock_get_logger:
+            logger = Mock()
+            mock_get_logger.return_value = logger
+
+            _apply_debug_logging(entry)
+
+        logger.setLevel.assert_called_once_with(logging.DEBUG)

@@ -14,8 +14,10 @@ if TYPE_CHECKING:
 
 from .const import (
     CONF_DEBUG_ENTITIES,
+    CONF_DEBUG_LOGGING,
     CONF_REGION,
     DEFAULT_DEBUG_ENTITIES,
+    DEFAULT_DEBUG_LOGGING,
     DEFAULT_REGION,
     DOMAIN,
     SUPPORTED_REGIONS,
@@ -131,6 +133,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             new_options = {
                 **self._config_entry.options,
                 CONF_DEBUG_ENTITIES: user_input[CONF_DEBUG_ENTITIES],
+                CONF_DEBUG_LOGGING: user_input[CONF_DEBUG_LOGGING],
             }
 
             self.hass.config_entries.async_update_entry(
@@ -164,6 +167,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         default=self._config_entry.options.get(
                             CONF_DEBUG_ENTITIES,
                             DEFAULT_DEBUG_ENTITIES,
+                        ),
+                    ): bool,
+                    vol.Required(
+                        CONF_DEBUG_LOGGING,
+                        default=self._config_entry.options.get(
+                            CONF_DEBUG_LOGGING,
+                            DEFAULT_DEBUG_LOGGING,
                         ),
                     ): bool,
                 }
