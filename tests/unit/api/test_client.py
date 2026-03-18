@@ -852,6 +852,7 @@ class TestFortumAPIClient:
                 return_value={datetime.fromisoformat("2026-03-04T00:00:00+00:00")},
             ),
             patch.object(client, "get_time_series_data", return_value=[time_series]),
+            patch.object(client, "_get_stat_sum_before_hour", return_value=0.0),
             patch(
                 "custom_components.mittfortum.api.client.async_add_external_statistics"
             ) as mock_add_stats,

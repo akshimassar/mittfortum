@@ -602,7 +602,7 @@ class FortumAPIClient:
                 )
             )
         except Exception as exc:
-            _LOGGER.debug(
+            _LOGGER.warning(
                 "Could not read previous sum for %s before %s: %s",
                 statistic_id,
                 hour.isoformat(),
@@ -630,6 +630,12 @@ class FortumAPIClient:
         continue_after_missing: bool,
     ) -> int:
         """Fetch and import statistics for a metering point/time window."""
+        _LOGGER.debug(
+            "_sync_statistics_window start: metering_point_no=%s from=%s to=%s",
+            metering_point_no,
+            dt_util.as_utc(from_date).isoformat(),
+            dt_util.as_utc(to_date).isoformat(),
+        )
 
         time_series_list = await self.get_time_series_data(
             metering_point_nos=[metering_point_no],
@@ -641,6 +647,8 @@ class FortumAPIClient:
         )
 
         imported_points = 0
+        total_consumption_seed: float | None = None
+        total_consumption_final: float | None = None
         for time_series in time_series_list:
             self._record_earliest_available_marker(time_series, from_date)
 
@@ -761,10 +769,13 @@ class FortumAPIClient:
                     consumption_statistic_id,
                     cast("datetime", consumption_statistics[0]["start"]),
                 )
+                if total_consumption_seed is None:
+                    total_consumption_seed = consumption_sum
                 for row in consumption_statistics:
                     state_value = cast("float", row["state"])
                     consumption_sum += state_value
                     row["sum"] = consumption_sum
+                total_consumption_final = consumption_sum
 
             if cost_statistics:
                 cost_sum = await self._get_stat_sum_before_hour(
@@ -860,6 +871,27 @@ class FortumAPIClient:
                     temperature_rows,
                 )
                 imported_points += len(temperature_statistics)
+
+        seed_text = (
+            f"{total_consumption_seed:.3f}"
+            if total_consumption_seed is not None
+            else "n/a"
+        )
+        final_text = (
+            f"{total_consumption_final:.3f}"
+            if total_consumption_final is not None
+            else "n/a"
+        )
+        _LOGGER.debug(
+            "_sync_statistics_window done: metering_point_no=%s from=%s to=%s "
+            "processed_records=%d total_consumption %s -> %s",
+            metering_point_no,
+            dt_util.as_utc(from_date).isoformat(),
+            dt_util.as_utc(to_date).isoformat(),
+            imported_points,
+            seed_text,
+            final_text,
+        )
 
         return imported_points
 
