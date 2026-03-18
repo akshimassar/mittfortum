@@ -661,35 +661,43 @@ class TestFortumAPIClient:
         assert mock_get_series.call_count == 1
         assert mock_get_series.call_args.kwargs["from_date"] >= latest_start
 
-    async def test_backfill_hourly_statistics_historical_mode_steps_backwards(
+    async def test_backfill_hourly_statistics_historical_mode_uses_earliest_start(
         self, mock_hass, mock_auth_client
     ):
-        """Historical mode should step backwards until empty window."""
+        """Historical mode should choose earliest available and sync forward."""
         client = FortumAPIClient(mock_hass, mock_auth_client)
+        earliest_start = datetime.fromisoformat("2026-01-01T00:00:00+00:00")
+
         with (
             patch.object(
                 client,
                 "get_metering_points",
                 return_value=[MeteringPoint(metering_point_no="6094111")],
             ),
-            patch.object(client, "_get_latest_statistics_start", return_value=None),
             patch.object(
                 client,
-                "_sync_statistics_window",
-                side_effect=[3, 3, 0],
-            ) as mock_sync,
+                "_get_latest_statistics_start",
+                return_value=None,
+            ),
+            patch.object(
+                client,
+                "_determine_earliest_available_start",
+                return_value=earliest_start,
+            ) as mock_determine_start,
+            patch.object(
+                client,
+                "_sync_statistics_range_forward",
+                return_value=6,
+            ) as mock_sync_forward,
         ):
             imported = await client.backfill_hourly_statistics(
                 allow_historical_backfill=True,
             )
 
         assert imported == 6
-        assert mock_sync.call_count == 3
-        assert mock_sync.call_args_list[0].kwargs.get("newest_first", False) is False
-        assert all(
-            call.kwargs.get("newest_first", False) is True
-            for call in mock_sync.call_args_list[1:]
-        )
+        mock_determine_start.assert_called_once()
+        mock_sync_forward.assert_called_once()
+        assert mock_sync_forward.call_args.args[1] == earliest_start
 
     async def test_backfill_stops_after_missing_price_gap(
         self, mock_hass, mock_auth_client

@@ -137,6 +137,7 @@ class TimeSeries:
     cost_unit: str
     temperature_unit: str
     series: list[TimeSeriesDataPoint]
+    earliest_available_at_utc: datetime | None = None
 
     @classmethod
     def from_api_response(cls, data: dict[str, Any]) -> TimeSeries:
@@ -144,6 +145,8 @@ class TimeSeries:
         series_points = [
             TimeSeriesDataPoint.from_api_response(s) for s in data["series"]
         ]
+
+        earliest_available_at_utc = cls._extract_earliest_available_datetime(data)
 
         return cls(
             delivery_site_category=data["deliverySiteCategory"],
@@ -153,7 +156,74 @@ class TimeSeries:
             cost_unit=data["costUnit"],
             temperature_unit=data["temperatureUnit"],
             series=series_points,
+            earliest_available_at_utc=earliest_available_at_utc,
         )
+
+    @classmethod
+    def _extract_earliest_available_datetime(
+        cls,
+        data: dict[str, Any],
+    ) -> datetime | None:
+        """Extract API-reported earliest available timestamp when present."""
+        candidates: list[datetime] = []
+
+        def _visit(value: Any, key: str = "", parent_key: str = "") -> None:
+            key_l = key.lower()
+            parent_l = parent_key.lower()
+
+            if isinstance(value, dict):
+                for child_key, child_value in value.items():
+                    _visit(child_value, child_key, key)
+                return
+
+            if isinstance(value, list):
+                for child in value:
+                    _visit(child, key, parent_key)
+                return
+
+            if not isinstance(value, str):
+                return
+
+            if not cls._looks_like_earliest_key(key_l, parent_l):
+                return
+
+            parsed = cls._parse_api_datetime(value)
+            if parsed is not None:
+                candidates.append(parsed)
+
+        _visit(data)
+        if not candidates:
+            return None
+        return min(candidates)
+
+    @staticmethod
+    def _looks_like_earliest_key(key: str, parent_key: str) -> bool:
+        """Return True when key likely represents earliest-available metadata."""
+        if "earliest" in key or "oldest" in key:
+            return True
+        if "available" in parent_key and "from" in key:
+            return True
+        if key in {"availablefrom", "available_from", "fromavailable"}:
+            return True
+        return False
+
+    @staticmethod
+    def _parse_api_datetime(value: str) -> datetime | None:
+        """Parse Fortum datetime/date strings into timezone-aware UTC datetimes."""
+        try:
+            if value.endswith("Z"):
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+            parsed = datetime.fromisoformat(value)
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=ZoneInfo("UTC"))
+            return parsed
+        except ValueError:
+            try:
+                parsed_date = datetime.fromisoformat(f"{value}T00:00:00")
+                return parsed_date.replace(tzinfo=ZoneInfo("UTC"))
+            except ValueError:
+                return None
 
     @property
     def total_energy_consumption(self) -> float:
