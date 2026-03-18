@@ -4,11 +4,10 @@ A Home Assistant custom integration for accessing energy consumption data from F
 
 ## Features
 
-- **Energy Consumption Monitoring**: Track your energy usage over time
-- **Cost Tracking**: Monitor energy costs in your local Fortum currency (SEK/EUR)
-- **Secure OAuth2 Authentication**: Uses Fortum's official authentication system
-- **Automatic Token Refresh**: Handles token expiration automatically
-- **Device Integration**: Creates a device in Home Assistant for easy management
+- **Current electricity price**: Imports Fortum 15-minute spot price data and updates it in Home Assistant every 5 minutes.
+- **Hourly historical statistics**: Imports hourly consumption, cost, price, and temperature and backfills missing history on a regular interval.
+- **Long-term visibility**: Stores imported data as Home Assistant long-term statistics, so it can be charted over long periods.
+- **Multi-meter support**: Creates separate statistics series for each metering point found in your Fortum account.
 
 ## Installation
 
@@ -41,11 +40,24 @@ A Home Assistant custom integration for accessing energy consumption data from F
 
 ## Entities
 
-The integration creates the following entities:
+The integration creates these regular entities:
 
-- **Energy Consumption Sensor**: Total energy consumption in kWh
-- **Total Cost Sensor**: Total energy cost in local currency (SEK/EUR)
-- **Price per kWh Sensor**: Current/latest energy price per kWh, refreshed every 5 minutes (uses 15-minute resolution when available, otherwise hourly)
+- **Energy Consumption Sensor** (`sensor`): Current/aggregated consumption view from the main data coordinator.
+- **Total Cost Sensor** (`sensor`): Current/aggregated cost view from the main data coordinator.
+- **Price per kWh Sensor** (`sensor`): Latest spot price, refreshed by the price coordinator every 5 minutes.
+- **Statistics Last Sync** (`sensor`, timestamp): Last successful statistics import time.
+
+Additionally, it imports hourly Recorder statistics for each available metering point:
+
+- `mittfortum:hourly_consumption_<metering_point_no>`
+- `mittfortum:hourly_cost_<metering_point_no>`
+- `mittfortum:hourly_price_<metering_point_no>`
+- `mittfortum:hourly_temperature_<metering_point_no>`
+
+If `Debug entities` is enabled in integration options, two debug buttons are exposed:
+
+- **Full Statistics Sync** (`button`): Runs a forced full historical sync.
+- **Clear Statistics (available metering points only)** (`button`): Clears imported statistics series for currently discovered metering points.
 
 ## Architecture
 
