@@ -98,7 +98,7 @@ class TestMittFortumIntegration:
         mock_api_client = AsyncMock()
         mock_api_client_class.return_value = mock_api_client
         mock_api_client.get_consumption_data.return_value = mock_consumption_data
-        mock_api_client.backfill_hourly_statistics.return_value = 0
+        mock_api_client.sync_hourly_data_all_meters.return_value = 0
         mock_api_client.get_customer_details.return_value = mock_customer_details
         mock_api_client.get_metering_points.return_value = [mock_metering_point]
 
@@ -137,7 +137,7 @@ class TestMittFortumIntegration:
 
         mock_api_client = AsyncMock()
         mock_api_client_class.return_value = mock_api_client
-        mock_api_client.backfill_hourly_statistics.return_value = 0
+        mock_api_client.sync_hourly_data_all_meters.return_value = 0
 
         # Add and setup config entry
         mock_hass.config_entries._entries[mock_config_entry.entry_id] = (
@@ -178,7 +178,7 @@ class TestMittFortumIntegration:
 
         mock_api_client = AsyncMock()
         mock_api_client_class.return_value = mock_api_client
-        mock_api_client.backfill_hourly_statistics.return_value = 0
+        mock_api_client.sync_hourly_data_all_meters.return_value = 0
 
         # Test creating a coordinator directly since full integration test
         # would require actual Home Assistant setup
@@ -203,7 +203,7 @@ class TestMittFortumIntegration:
         data = await coordinator._async_update_data()
 
         # Verify statistics sync was called
-        mock_api_client.backfill_hourly_statistics.assert_called_once_with(
+        mock_api_client.sync_hourly_data_all_meters.assert_called_once_with(
             force_resync=False,
         )
 

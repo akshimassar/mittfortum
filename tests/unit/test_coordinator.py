@@ -31,7 +31,7 @@ def mock_hass():
 def mock_api_client():
     """Create a mock API client."""
     client = AsyncMock(spec=FortumAPIClient)
-    client.backfill_hourly_statistics.return_value = 24
+    client.sync_hourly_data_all_meters.return_value = 24
     return client
 
 
@@ -79,7 +79,7 @@ class TestHourlyConsumptionSyncScheduler:
         data = await coordinator._async_update_data()
 
         assert data == []
-        mock_api_client.backfill_hourly_statistics.assert_called_once_with(
+        mock_api_client.sync_hourly_data_all_meters.assert_called_once_with(
             force_resync=False,
         )
         assert coordinator.last_statistics_sync is not None
@@ -88,7 +88,7 @@ class TestHourlyConsumptionSyncScheduler:
         self, coordinator, mock_api_client
     ):
         """Test update failure when statistics sync raises unexpected error."""
-        mock_api_client.backfill_hourly_statistics.side_effect = Exception("boom")
+        mock_api_client.sync_hourly_data_all_meters.side_effect = Exception("boom")
 
         with pytest.raises(UpdateFailed) as exc_info:
             await coordinator._async_update_data()
@@ -105,7 +105,7 @@ class TestHourlyConsumptionSyncScheduler:
         self, coordinator, mock_api_client
     ):
         """Test data update when statistics sync fails."""
-        sync_mock = mock_api_client.backfill_hourly_statistics
+        sync_mock = mock_api_client.sync_hourly_data_all_meters
         sync_mock.side_effect = APIError("sync failed")
 
         data = await coordinator._async_update_data()

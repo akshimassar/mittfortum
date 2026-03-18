@@ -45,7 +45,7 @@ class HourlyConsumptionSyncScheduler(DataUpdateCoordinator[list[ConsumptionData]
         force_resync: bool = False,
     ) -> int:
         """Run statistics sync and update sync timestamp."""
-        imported_points = await self.api_client.backfill_hourly_statistics(
+        imported_points = await self.api_client.sync_hourly_data_all_meters(
             force_resync=force_resync,
         )
         self.last_statistics_sync = datetime.now().astimezone()
