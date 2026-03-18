@@ -260,9 +260,11 @@ class OAuth2AuthClient:
                 access_token = user_data.get("accessToken", SESSION_BASED_TOKEN)
                 id_token = user_data.get("idToken", SESSION_BASED_TOKEN)
 
-                # DEBUG: Log the entire session data to understand structure
-                _LOGGER.debug("Complete session data structure: %s", session_data)
-                _LOGGER.debug("Complete user data structure: %s", user_data)
+                _LOGGER.debug(
+                    "Session established: customer_id=%s delivery_sites=%d",
+                    user_data.get("customerId"),
+                    len(user_data.get("deliverySites", [])),
+                )
 
                 expires_str = user_data.get("expires")
 

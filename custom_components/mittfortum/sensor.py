@@ -38,4 +38,6 @@ async def async_setup_entry(
         MittFortumStatisticsSyncSensor(coordinator, device),
     ]
 
-    async_add_entities(entities, update_before_add=True)
+    # Coordinators are refreshed during integration setup, so forcing another
+    # refresh before adding entities only slows down reload/startup.
+    async_add_entities(entities, update_before_add=False)

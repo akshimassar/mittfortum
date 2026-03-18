@@ -58,12 +58,17 @@ class MittFortumDataCoordinator(DataUpdateCoordinator[list[ConsumptionData]]):
     async def async_schedule_initial_backfill(self) -> None:
         """Schedule non-blocking long historical backfill on first startup."""
         if self._historical_backfill_task and not self._historical_backfill_task.done():
+            _LOGGER.debug("Initial historical backfill already scheduled/running")
             return
 
         has_price_stats = await self.api_client.has_existing_price_statistics()
         if has_price_stats:
+            _LOGGER.debug(
+                "Skipping initial historical backfill because price statistics exist"
+            )
             return
 
+        _LOGGER.debug("Scheduling initial historical backfill task")
         self._historical_backfill_task = self.hass.async_create_task(
             self._async_run_initial_backfill_task()
         )

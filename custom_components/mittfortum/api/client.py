@@ -874,24 +874,9 @@ class FortumAPIClient:
                     # for tests
                     if hasattr(client.cookies, "set"):
                         client.cookies.set(name, value, domain=domain)
-                        _LOGGER.debug(
-                            "Added cookie to request: %s=%s... (domain=%s)",
-                            name,
-                            value[:20] if len(value) > 20 else value,
-                            domain,
-                        )
                     else:
                         # Fallback for test mocks that use plain dict
                         client.cookies[name] = value
-                        _LOGGER.debug(
-                            "Added cookie to request: %s=%s...",
-                            name,
-                            value[:20] if len(value) > 20 else value,
-                        )
-                _LOGGER.debug(
-                    "Added %d session cookies to request",
-                    len(self._auth_client.session_cookies),
-                )
 
             try:
                 # Build headers fresh for each attempt
