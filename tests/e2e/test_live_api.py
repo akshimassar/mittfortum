@@ -136,6 +136,37 @@ def _safe_preview(value: object, max_len: int = 120) -> str:
     return text[:max_len] + "..."
 
 
+def _collect_marker_paths(
+    payload: object,
+    *,
+    marker_terms: tuple[str, ...],
+    max_results: int = 20,
+) -> list[str]:
+    """Collect key paths whose names include marker terms."""
+    matches: list[str] = []
+
+    def _visit(value: object, path: str) -> None:
+        if len(matches) >= max_results:
+            return
+
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                key_lower = key.lower()
+                next_path = f"{path}.{key}" if path else key
+                if any(term in key_lower for term in marker_terms):
+                    matches.append(next_path)
+                _visit(nested, next_path)
+            return
+
+        if isinstance(value, list):
+            for index, nested in enumerate(value[:5]):
+                next_path = f"{path}[{index}]"
+                _visit(nested, next_path)
+
+    _visit(payload, "")
+    return matches
+
+
 async def _probe_auth_endpoints(hass: HomeAssistant, region: str) -> dict[str, object]:
     """Probe key auth endpoints for diagnostics (no credentials)."""
     from custom_components.mittfortum.api.endpoints import APIEndpoints
@@ -259,6 +290,15 @@ async def test_live_auth_and_data_flow(
         auth_user_keys,
     )
 
+    user_marker_paths = _collect_marker_paths(
+        auth_client.session_data.get("user"),
+        marker_terms=("earliest", "oldest", "availablefrom", "available_from"),
+    )
+    _LOGGER.info(
+        "Session user marker keys for earliest availability: %s",
+        user_marker_paths if user_marker_paths else "none",
+    )
+
     try:
         metering_points = await api_client.get_metering_points()
     except Exception as exc:  # pragma: no cover - live diagnostics path
@@ -308,6 +348,13 @@ async def test_live_auth_and_data_flow(
     )
 
     _LOGGER.info("Time series records fetched=%d", len(time_series))
+
+    if time_series:
+        earliest_value = getattr(time_series[0], "earliest_available_at_utc", None)
+        _LOGGER.info(
+            "Parsed TimeSeries earliest_available_at_utc: %s",
+            earliest_value.isoformat() if earliest_value is not None else "none",
+        )
 
     hourly_from_date = datetime.now() - timedelta(days=14)
     hourly_to_date = datetime.now()
