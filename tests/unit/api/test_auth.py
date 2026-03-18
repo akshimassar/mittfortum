@@ -242,8 +242,8 @@ class TestOAuth2AuthClient:
             assert result.access_token == "new_access_token"
             assert result.refresh_token == "new_refresh_token"
 
-    async def test_session_propagation_delay(self, mock_hass):
-        """Test that session verification includes delay for server propagation."""
+    async def test_session_verification_has_no_unconditional_delay(self, mock_hass):
+        """Successful first attempt should not sleep for propagation."""
         client = OAuth2AuthClient(
             hass=mock_hass,
             username="test@example.com",
@@ -285,11 +285,8 @@ class TestOAuth2AuthClient:
                     # Call _verify_session_established
                     result = await client._verify_session_established(mock_client)
 
-                    # Verify the initial delay was added (now 3.0s for better
-                    # propagation)
-                    sleep_calls = mock_sleep.call_args_list
-                    assert len(sleep_calls) >= 1
-                    assert sleep_calls[0][0][0] == 3.0  # First call should be 3.0s
+                    # No propagation delay should be added on successful first attempt
+                    assert mock_sleep.call_count == 0
 
                 # Verify session data was returned correctly
                 assert result == mock_session_data
@@ -334,7 +331,45 @@ class TestOAuth2AuthClient:
         assert result == valid_session
         assert mock_client.get.call_count == 3
         assert mock_sleep.call_args_list[0][0][0] == 0.5
-        assert mock_sleep.call_args_list[1][0][0] == 3.0
+
+    async def test_verify_session_logs_error_when_first_attempt_has_no_user(
+        self, mock_hass
+    ):
+        """Log an error when first session verification misses user data."""
+        client = OAuth2AuthClient(
+            hass=mock_hass,
+            username="test@example.com",
+            password="test_password",
+        )
+
+        empty_session_response = Mock()
+        empty_session_response.status_code = 200
+        empty_session_response.json.return_value = {}
+
+        valid_session = {
+            "user": {
+                "id": "test_user",
+                "accessToken": "test_access_token",
+            }
+        }
+        valid_session_response = Mock()
+        valid_session_response.status_code = 200
+        valid_session_response.json.return_value = valid_session
+
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = [empty_session_response, valid_session_response]
+
+        with (
+            patch("custom_components.mittfortum.api.auth.asyncio.sleep") as mock_sleep,
+            patch("custom_components.mittfortum.api.auth._LOGGER.error") as mock_error,
+            patch.object(client, "_validate_session_against_api", return_value=True),
+        ):
+            mock_sleep.return_value = None
+            result = await client._verify_session_established(mock_client)
+
+        assert result == valid_session
+        mock_error.assert_called_once()
+        assert mock_sleep.call_count == 0
 
     async def test_verify_session_raises_when_user_never_available(self, mock_hass):
         """Test session verification fails after all retries are exhausted."""

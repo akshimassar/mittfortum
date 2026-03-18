@@ -568,6 +568,12 @@ class OAuth2AuthClient:
             if session_data.get("user"):
                 break
 
+            if attempt == 1:
+                _LOGGER.error(
+                    "Session user data missing on first verification attempt; "
+                    "retrying with propagation backoff"
+                )
+
             if delay > 0:
                 _LOGGER.info(
                     "Session user data not available yet "
@@ -583,11 +589,6 @@ class OAuth2AuthClient:
             raise OAuth2Error("Invalid session data response")
 
         _LOGGER.debug("Session verified successfully")
-
-        # Give the server time to propagate the session for better reliability
-        # Increased from 0.3s to 3.0s for better session propagation
-        _LOGGER.debug("Waiting for session propagation (3.0s)")
-        await asyncio.sleep(3.0)
 
         # Perform a non-blocking session validation check for informational purposes
         # This is purely for logging and won't fail authentication if it doesn't work
