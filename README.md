@@ -59,7 +59,9 @@ If `Debug entities` is enabled in integration options, two debug buttons are exp
 
 ## Architecture
 
-For architecture details, project layout, and contributor-focused development notes, see `AGENTS.md`.
+For architecture details, project layout, and contributor-focused development notes, see `DEVELOPMENT.md`.
+
+For minimal AI/code-agent instructions, see `AGENTS.md`.
 
 ## License
 
