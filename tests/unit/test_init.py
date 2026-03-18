@@ -75,6 +75,7 @@ class TestInit:
             CONF_USERNAME: "test@example.com",
             CONF_PASSWORD: "wrong_password",
         }
+        entry.entry_id = "test_entry_id"
         entry.options = {}
         entry.add_update_listener = Mock(return_value=Mock())
         entry.async_on_unload = Mock()

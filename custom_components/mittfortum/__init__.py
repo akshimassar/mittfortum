@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from time import monotonic
 from typing import TYPE_CHECKING
 
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -31,8 +32,10 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up MittFortum from a config entry."""
+    setup_started = monotonic()
     hass.data.setdefault(DOMAIN, {})
     _apply_debug_logging(entry)
+    _LOGGER.debug("Starting MittFortum setup for entry_id=%s", entry.entry_id)
 
     # Get credentials from config entry
     username = entry.data[CONF_USERNAME]
@@ -50,6 +53,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Perform initial authentication
         await auth_client.authenticate()
+        _LOGGER.debug("Authentication completed for entry_id=%s", entry.entry_id)
 
         # Create API client
         api_client = FortumAPIClient(hass, auth_client)
@@ -67,6 +71,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for attempt in range(max_retries):
             try:
                 await coordinator.async_config_entry_first_refresh()
+                _LOGGER.debug(
+                    "Initial data refresh completed for entry_id=%s on attempt=%d",
+                    entry.entry_id,
+                    attempt + 1,
+                )
                 break
             except ConfigEntryNotReady as exc:
                 if (
@@ -103,22 +112,48 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Price data can be fetched independently from delayed consumption.
         # Refresh separately so fast price updates are available.
         await price_coordinator.async_refresh()
+        _LOGGER.debug("Price refresh completed for entry_id=%s", entry.entry_id)
 
         # Forward setup to platforms
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        _LOGGER.debug("Platform setup completed for entry_id=%s", entry.entry_id)
 
         # Trigger deep historical backfill only after setup is complete and
         # only if this appears to be the first startup (no prior price stats).
         await coordinator.async_schedule_initial_backfill()
+        _LOGGER.debug(
+            "Initial backfill scheduling completed for entry_id=%s", entry.entry_id
+        )
+
+        _LOGGER.debug(
+            "MittFortum setup finished for entry_id=%s in %.2fs",
+            entry.entry_id,
+            monotonic() - setup_started,
+        )
 
     except AuthenticationError:
         _LOGGER.exception("Authentication failed for MittFortum")
+        _LOGGER.debug(
+            "MittFortum setup failed for entry_id=%s after %.2fs",
+            entry.entry_id,
+            monotonic() - setup_started,
+        )
         return False
     except MittFortumError:
         _LOGGER.exception("Setup failed for MittFortum")
+        _LOGGER.debug(
+            "MittFortum setup failed for entry_id=%s after %.2fs",
+            entry.entry_id,
+            monotonic() - setup_started,
+        )
         return False
     except Exception:
         _LOGGER.exception("Unexpected error setting up MittFortum")
+        _LOGGER.debug(
+            "MittFortum setup failed for entry_id=%s after %.2fs",
+            entry.entry_id,
+            monotonic() - setup_started,
+        )
         return False
     else:
         return True
