@@ -7,20 +7,27 @@ between regions.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from time import perf_counter
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.httpx_client import get_async_client
 
+from custom_components.mittfortum import async_setup_entry
 from custom_components.mittfortum.api import FortumAPIClient, OAuth2AuthClient
-from custom_components.mittfortum.const import STATISTICS_REQUEST_TIMEOUT_SECONDS
+from custom_components.mittfortum.const import (
+    CONF_REGION,
+    DOMAIN,
+    STATISTICS_REQUEST_TIMEOUT_SECONDS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -441,4 +448,49 @@ async def test_live_historical_backfill_probe_oldest_hours(
         "Could not find 3 historical hours with price-present data. "
         f"found={len(oldest_three)} windows_checked={max_windows} "
         f"max_age_months={max_age_months}"
+    )
+
+
+@pytest.mark.e2e
+async def test_live_integration_setup_under_five_seconds(
+    live_hass: HomeAssistant, e2e_settings: E2ESettings
+):
+    """Measure setup path duration (auth-only + async post-setup scheduling)."""
+    live_hass.data.setdefault(DOMAIN, {})
+    live_hass.config_entries = MagicMock()
+    live_hass.config_entries.async_forward_entry_setups = AsyncMock(return_value=True)
+
+    def _schedule_task(target, name=None, eager_start=True):
+        del name, eager_start
+        return asyncio.create_task(target)
+
+    live_hass.async_create_task = _schedule_task
+
+    entry = MagicMock()
+    entry.entry_id = "e2e_startup"
+    entry.data = {
+        CONF_USERNAME: e2e_settings.username,
+        CONF_PASSWORD: e2e_settings.password,
+        CONF_REGION: e2e_settings.region,
+    }
+    entry.options = {}
+    entry.add_update_listener = MagicMock(return_value=MagicMock())
+    entry.async_on_unload = MagicMock()
+
+    started = perf_counter()
+    with (
+        patch("custom_components.mittfortum.MittFortumDataCoordinator") as mock_coord,
+        patch(
+            "custom_components.mittfortum.MittFortumPriceCoordinator"
+        ) as mock_price_coord,
+    ):
+        mock_coord.return_value = AsyncMock()
+        mock_price_coord.return_value = AsyncMock()
+        result = await async_setup_entry(live_hass, entry)
+    elapsed = perf_counter() - started
+
+    assert result is True, "Integration setup did not complete successfully"
+    assert elapsed < 5.0, (
+        "Integration setup exceeded startup target: "
+        f"elapsed_seconds={elapsed:.3f} (target<5.000)"
     )

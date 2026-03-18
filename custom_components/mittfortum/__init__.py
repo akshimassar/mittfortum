@@ -6,7 +6,11 @@ import logging
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.const import (
+    CONF_PASSWORD,
+    CONF_USERNAME,
+    EVENT_HOMEASSISTANT_STARTED,
+)
 
 from .api import FortumAPIClient, OAuth2AuthClient
 
@@ -94,14 +98,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         _LOGGER.debug("Platform setup completed for entry_id=%s", entry.entry_id)
 
-        # Perform all data retrieval asynchronously after startup completes.
-        hass.async_create_task(
-            _async_post_setup_refreshes(entry, coordinator, price_coordinator)
-        )
-        _LOGGER.debug(
-            "Scheduled async post-setup refresh for entry_id=%s",
-            entry.entry_id,
-        )
+        # Perform all data retrieval asynchronously after HA startup completes.
+        _schedule_post_setup_refreshes(hass, entry, coordinator, price_coordinator)
 
         _LOGGER.debug(
             "MittFortum setup finished for entry_id=%s in %.2fs",
@@ -228,3 +226,34 @@ async def _async_post_setup_refreshes(
             "Async post-setup refresh failed for entry_id=%s",
             entry.entry_id,
         )
+
+
+def _schedule_post_setup_refreshes(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    coordinator: MittFortumDataCoordinator,
+    price_coordinator: MittFortumPriceCoordinator,
+) -> None:
+    """Schedule post-setup refreshes after HA startup completes."""
+
+    if hass.is_running:
+        hass.async_create_task(
+            _async_post_setup_refreshes(entry, coordinator, price_coordinator)
+        )
+        _LOGGER.debug(
+            "Scheduled async post-setup refresh immediately for entry_id=%s",
+            entry.entry_id,
+        )
+        return
+
+    def _on_started(_event: Any) -> None:
+        hass.async_create_task(
+            _async_post_setup_refreshes(entry, coordinator, price_coordinator)
+        )
+        _LOGGER.debug(
+            "Scheduled async post-setup refresh after HA started for entry_id=%s",
+            entry.entry_id,
+        )
+
+    unsub = hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _on_started)
+    entry.async_on_unload(unsub)
