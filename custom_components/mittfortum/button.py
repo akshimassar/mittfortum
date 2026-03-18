@@ -44,7 +44,7 @@ async def async_setup_entry(
 
     async_add_entities(
         [
-            MittFortumFullStatisticsSyncButton(
+            MittFortumFullHistoryResyncButton(
                 coordinator=coordinator,
                 device=device,
             ),
@@ -56,8 +56,8 @@ async def async_setup_entry(
     )
 
 
-class MittFortumFullStatisticsSyncButton(MittFortumEntity, ButtonEntity):
-    """Debug button to run full statistics resync."""
+class MittFortumFullHistoryResyncButton(MittFortumEntity, ButtonEntity):
+    """Debug button to run full history re-sync."""
 
     def __init__(
         self,
@@ -69,21 +69,20 @@ class MittFortumFullStatisticsSyncButton(MittFortumEntity, ButtonEntity):
             coordinator=coordinator,
             device=device,
             entity_key=FULL_SYNC_BUTTON_KEY,
-            name="Full Statistics Sync",
+            name="Full History Re-Sync",
         )
 
     async def async_press(self) -> None:
-        """Run full backfill and overwrite existing points."""
+        """Run full history re-sync from earliest available date."""
         try:
             imported_points = await self.coordinator.async_run_statistics_sync(
-                rewrite=True,
-                allow_historical_backfill=True,
+                force_resync=True,
             )
         except APIError as exc:
-            raise HomeAssistantError(f"Full statistics sync failed: {exc}") from exc
+            raise HomeAssistantError(f"Full history re-sync failed: {exc}") from exc
 
         _LOGGER.info(
-            "Full statistics sync triggered manually, processed %d points",
+            "Full history re-sync triggered manually, processed %d points",
             imported_points,
         )
 

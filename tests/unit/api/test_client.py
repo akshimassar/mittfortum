@@ -633,12 +633,18 @@ class TestFortumAPIClient:
         for call in mock_add_stats.call_args_list:
             assert len(call.args[2]) == 1
 
-    async def test_backfill_hourly_statistics_uses_latest_stat_timestamp(
+    async def test_backfill_hourly_statistics_uses_first_missing_recent_hour(
         self, mock_hass, mock_auth_client
     ):
-        """Test incremental sync starts from latest stored timestamp."""
+        """Start from first missing hour when recent price stats exist."""
         client = FortumAPIClient(mock_hass, mock_auth_client)
-        latest_start = datetime.fromisoformat("2026-03-03T22:00:00+00:00")
+        fixed_now = datetime.fromisoformat("2026-03-18T00:00:00+00:00")
+        two_weeks_ago = fixed_now - timedelta(days=14)
+        covered = {
+            two_weeks_ago,
+            two_weeks_ago + timedelta(hours=1),
+            two_weeks_ago + timedelta(hours=3),
+        }
 
         with (
             patch.object(
@@ -648,23 +654,30 @@ class TestFortumAPIClient:
             ),
             patch.object(
                 client,
-                "_get_latest_statistics_start",
-                return_value=latest_start,
+                "_get_price_statistic_hours",
+                return_value=covered,
             ),
             patch.object(
-                client, "get_time_series_data", return_value=[]
-            ) as mock_get_series,
+                client,
+                "_sync_statistics_range_forward",
+                return_value=0,
+            ) as mock_sync_forward,
+            patch(
+                "custom_components.mittfortum.api.client.dt_util.utcnow",
+                return_value=fixed_now,
+            ),
         ):
             imported = await client.backfill_hourly_statistics()
 
         assert imported == 0
-        assert mock_get_series.call_count == 1
-        assert mock_get_series.call_args.kwargs["from_date"] >= latest_start
+        assert mock_sync_forward.call_count == 1
+        sync_start = mock_sync_forward.call_args.args[1]
+        assert sync_start == two_weeks_ago + timedelta(hours=2)
 
-    async def test_backfill_hourly_statistics_historical_mode_uses_earliest_start(
+    async def test_backfill_hourly_statistics_force_resync_uses_earliest_start(
         self, mock_hass, mock_auth_client
     ):
-        """Historical mode should choose earliest available and sync forward."""
+        """Force re-sync should always start from earliest available marker."""
         client = FortumAPIClient(mock_hass, mock_auth_client)
         earliest_start = datetime.fromisoformat("2026-01-01T00:00:00+00:00")
 
@@ -672,54 +685,72 @@ class TestFortumAPIClient:
             patch.object(
                 client,
                 "get_metering_points",
-                return_value=[MeteringPoint(metering_point_no="6094111")],
+                return_value=[
+                    MeteringPoint(
+                        metering_point_no="6094111",
+                        earliest_hourly_available_at_utc=earliest_start,
+                    )
+                ],
             ),
-            patch.object(
-                client,
-                "_get_latest_statistics_start",
-                return_value=None,
-            ),
-            patch.object(
-                client,
-                "_determine_earliest_available_start",
-                return_value=earliest_start,
-            ) as mock_determine_start,
             patch.object(
                 client,
                 "_sync_statistics_range_forward",
                 return_value=6,
             ) as mock_sync_forward,
         ):
-            imported = await client.backfill_hourly_statistics(
-                allow_historical_backfill=True,
-            )
+            imported = await client.backfill_hourly_statistics(force_resync=True)
 
         assert imported == 6
-        mock_determine_start.assert_called_once()
         mock_sync_forward.assert_called_once()
         assert mock_sync_forward.call_args.args[1] == earliest_start
+        assert mock_sync_forward.call_args.kwargs["continue_after_missing"] is True
 
-    async def test_determine_earliest_start_prefers_userinfo_marker(
+    async def test_get_price_statistic_hours_parses_string_timestamp(
         self, mock_hass, mock_auth_client
     ):
-        """Use earliest marker from session user info without probing time series."""
+        """Parse recorder start as ISO string when datetime is not returned."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        recorder_instance = Mock()
+        recorder_instance.async_add_executor_job = AsyncMock(
+            return_value={
+                "mittfortum:hourly_price_6094111": [
+                    {"start": "2026-03-17T22:00:00+00:00", "max": 1.2}
+                ]
+            }
+        )
+
+        with patch(
+            "custom_components.mittfortum.api.client.get_instance",
+            return_value=recorder_instance,
+        ):
+            starts = await client._get_price_statistic_hours(
+                "6094111",
+                datetime.fromisoformat("2026-03-04T00:00:00+00:00"),
+                datetime.fromisoformat("2026-03-18T00:00:00+00:00"),
+            )
+
+        assert starts == {datetime.fromisoformat("2026-03-17T22:00:00+00:00")}
+
+    async def test_determine_sync_start_prefers_userinfo_marker_when_no_recent_stats(
+        self, mock_hass, mock_auth_client
+    ):
+        """Use earliest marker from user info when no recent stats exist."""
         client = FortumAPIClient(mock_hass, mock_auth_client)
         cached_earliest = datetime.fromisoformat("2025-01-06T00:00:00+00:00")
         client._earliest_available_by_metering_point["6094111"] = cached_earliest
-        recent_window_start = datetime.fromisoformat("2026-03-04T00:00:00+00:00")
-        range_end = datetime.fromisoformat("2026-03-18T00:00:00+00:00")
-        window = timedelta(days=14)
+        two_weeks_ago = datetime.fromisoformat("2026-03-04T00:00:00+00:00")
+        now = datetime.fromisoformat("2026-03-18T00:00:00+00:00")
 
-        with patch.object(client, "_sync_statistics_window") as mock_sync_window:
-            start = await client._determine_earliest_available_start(
+        with patch.object(client, "_get_price_statistic_hours", return_value=set()):
+            start, historical = await client._determine_sync_start(
                 "6094111",
-                recent_window_start,
-                range_end,
-                window,
+                two_weeks_ago,
+                now,
+                force_resync=False,
             )
 
         assert start == cached_earliest
-        mock_sync_window.assert_not_called()
+        assert historical is True
 
     async def test_backfill_stops_after_missing_price_gap(
         self, mock_hass, mock_auth_client
@@ -787,7 +818,11 @@ class TestFortumAPIClient:
                 "get_metering_points",
                 return_value=[MeteringPoint(metering_point_no="6094111")],
             ),
-            patch.object(client, "_get_latest_statistics_start", return_value=None),
+            patch.object(
+                client,
+                "_get_price_statistic_hours",
+                return_value={datetime.fromisoformat("2026-03-04T00:00:00+00:00")},
+            ),
             patch.object(client, "get_time_series_data", return_value=[time_series]),
             patch(
                 "custom_components.mittfortum.api.client.async_add_external_statistics"

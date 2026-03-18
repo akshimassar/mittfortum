@@ -90,8 +90,7 @@ class TestMittFortumDataCoordinator:
         assert abs(data[0].cost - 25.50) < 0.01
         mock_api_client.get_total_consumption.assert_called_once()
         mock_api_client.backfill_hourly_statistics.assert_called_once_with(
-            rewrite=False,
-            allow_historical_backfill=False,
+            force_resync=False,
         )
         assert coordinator.last_statistics_sync is not None
 
@@ -159,17 +158,6 @@ class TestMittFortumDataCoordinator:
         assert cleared == 3
         assert coordinator.last_statistics_sync is None
         mock_api_client.clear_hourly_statistics.assert_awaited_once()
-
-    async def test_schedule_initial_backfill_skips_when_price_stats_exist(
-        self, coordinator, mock_api_client
-    ):
-        """Do not start background backfill when price stats already exist."""
-        mock_api_client.has_existing_price_statistics.return_value = True
-
-        await coordinator.async_schedule_initial_backfill()
-
-        mock_api_client.has_existing_price_statistics.assert_awaited_once()
-        assert coordinator._historical_backfill_task is None
 
 
 class TestMittFortumPriceCoordinator:

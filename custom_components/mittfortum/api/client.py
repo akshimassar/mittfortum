@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from homeassistant.components.recorder.models.statistics import StatisticMeanType
 from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
-    get_last_statistics,
+    statistics_during_period,
 )
 from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.recorder import get_instance
@@ -289,102 +289,48 @@ class FortumAPIClient:
     async def backfill_hourly_statistics(
         self,
         *,
-        rewrite: bool = False,
-        allow_historical_backfill: bool = False,
+        force_resync: bool = False,
     ) -> int:
-        """Backfill hourly consumption/cost/price statistics."""
+        """Sync hourly consumption/cost/price statistics in two-week chunks."""
         metering_points = await self.get_metering_points()
         if not metering_points:
             _LOGGER.debug("No metering points available for hourly statistics sync")
             return 0
 
         utc_now = dt_util.utcnow().replace(minute=0, second=0, microsecond=0)
-        window = timedelta(days=STATISTICS_BACKFILL_DAYS)
-        recent_window_start = utc_now - window
+        two_weeks_ago = utc_now - timedelta(days=STATISTICS_BACKFILL_DAYS)
 
         imported_points = 0
         for metering_point in metering_points:
             metering_point_no = metering_point.metering_point_no
             self._record_metering_point_earliest_available_marker(metering_point)
-            latest_start = await self._get_latest_statistics_start(metering_point_no)
 
-            if rewrite:
-                sync_start = await self._determine_earliest_available_start(
-                    metering_point_no,
-                    recent_window_start,
-                    utc_now,
-                    window,
-                )
-                rewrite_log = (
-                    _LOGGER.info if sync_start < recent_window_start else _LOGGER.debug
-                )
-                rewrite_log(
-                    "Statistics sync decision for %s: mode=rewrite "
-                    "latest_price_stat=%s recent_window_start=%s sync_start=%s",
-                    metering_point_no,
-                    latest_start.isoformat() if latest_start else "none",
-                    recent_window_start.isoformat(),
-                    sync_start.isoformat(),
-                )
-                imported_points += await self._sync_statistics_range_forward(
-                    metering_point_no,
-                    sync_start,
-                    utc_now,
-                    window,
-                )
-                continue
-
-            has_recent_price_stats = (
-                latest_start is not None and latest_start >= recent_window_start
-            )
-
-            if allow_historical_backfill and not has_recent_price_stats:
-                sync_start = await self._determine_earliest_available_start(
-                    metering_point_no,
-                    recent_window_start,
-                    utc_now,
-                    window,
-                )
-                decision_reason = (
-                    "historical_backfill_missing_recent_price_stats"
-                    if latest_start is None
-                    else "historical_backfill_recent_price_gap"
-                )
-            else:
-                sync_start = (
-                    max(latest_start, recent_window_start)
-                    if latest_start is not None
-                    else recent_window_start
-                )
-                decision_reason = (
-                    "incremental_recent_window"
-                    if latest_start is not None
-                    else "initial_recent_window_only"
-                )
-
-            decision_log = (
-                _LOGGER.info if sync_start < recent_window_start else _LOGGER.debug
-            )
-            decision_log(
-                "Statistics sync decision for %s: mode=incremental "
-                "allow_historical_backfill=%s latest_price_stat=%s "
-                "recent_window_start=%s has_recent_price_stats=%s reason=%s "
-                "sync_start=%s sync_end=%s",
+            sync_start, historical = await self._determine_sync_start(
                 metering_point_no,
-                allow_historical_backfill,
-                latest_start.isoformat() if latest_start else "none",
-                recent_window_start.isoformat(),
-                has_recent_price_stats,
-                decision_reason,
-                sync_start.isoformat(),
+                two_weeks_ago,
                 utc_now,
+                force_resync=force_resync,
             )
+
+            _LOGGER.debug(
+                "Statistics sync start for %s: start=%s historical=%s "
+                "force_resync=%s two_weeks_ago=%s now=%s",
+                metering_point_no,
+                sync_start.isoformat(),
+                historical,
+                force_resync,
+                two_weeks_ago.isoformat(),
+                utc_now.isoformat(),
+            )
+
+            if sync_start >= utc_now:
+                continue
 
             imported_points += await self._sync_statistics_range_forward(
                 metering_point_no,
                 sync_start,
                 utc_now,
-                window,
+                continue_after_missing=historical,
             )
 
         return imported_points
@@ -429,7 +375,8 @@ class FortumAPIClient:
         metering_point_no: str,
         range_start: datetime,
         range_end: datetime,
-        window: timedelta,
+        *,
+        continue_after_missing: bool,
     ) -> int:
         """Sync statistics from oldest to newest in two-week windows."""
         if range_start >= range_end:
@@ -438,6 +385,7 @@ class FortumAPIClient:
         imported_points = 0
         window_start = range_start
         steps = 0
+        window = timedelta(days=STATISTICS_BACKFILL_DAYS)
 
         while window_start < range_end:
             if steps >= MAX_FULL_BACKFILL_STEPS:
@@ -451,98 +399,146 @@ class FortumAPIClient:
                 break
 
             window_end = min(window_start + window, range_end)
-            imported_in_window = await self._sync_statistics_window(
+            (
+                next_window_start,
+                imported_in_window,
+            ) = await self._sync_up_to_two_weeks_chunk(
                 metering_point_no,
                 window_start,
                 window_end,
+                continue_after_missing=continue_after_missing,
             )
             imported_points += imported_in_window
-            window_start = window_end
+            window_start = next_window_start
             steps += 1
 
         return imported_points
 
-    async def _determine_earliest_available_start(
+    async def _sync_up_to_two_weeks_chunk(
         self,
         metering_point_no: str,
-        recent_window_start: datetime,
+        chunk_start: datetime,
         range_end: datetime,
-        window: timedelta,
-    ) -> datetime:
-        """Determine historical sync start using API-reported earliest availability."""
-        cached_earliest = self._earliest_available_by_metering_point.get(
-            metering_point_no
+        *,
+        continue_after_missing: bool,
+    ) -> tuple[datetime, int]:
+        """Sync one up-to-two-weeks chunk and return next chunk start."""
+        imported = await self._sync_statistics_window(
+            metering_point_no,
+            chunk_start,
+            range_end,
+            continue_after_missing=continue_after_missing,
         )
-        if cached_earliest is not None:
-            _LOGGER.debug(
-                "Using cached earliest-available marker from user info for %s: %s",
-                metering_point_no,
-                cached_earliest.isoformat(),
-            )
-        else:
-            await self._sync_statistics_window(
-                metering_point_no,
-                recent_window_start,
-                range_end,
-                dry_run=True,
-            )
+        return range_end, imported
 
-        earliest_available = self._earliest_available_by_metering_point.get(
-            metering_point_no
+    async def _determine_sync_start(
+        self,
+        metering_point_no: str,
+        two_weeks_ago: datetime,
+        now: datetime,
+        *,
+        force_resync: bool,
+    ) -> tuple[datetime, bool]:
+        """Determine sync start hour and whether historical mode is needed."""
+        if force_resync:
+            earliest = self._earliest_available_by_metering_point.get(metering_point_no)
+            if earliest is None:
+                _LOGGER.warning(
+                    "Force history re-sync requested for %s but earliest hourly "
+                    "availability is unknown; starting from two_weeks_ago=%s",
+                    metering_point_no,
+                    two_weeks_ago.isoformat(),
+                )
+                return two_weeks_ago, True
+            return earliest, True
+
+        covered_hours = await self._get_price_statistic_hours(
+            metering_point_no,
+            two_weeks_ago,
+            now,
         )
-        if earliest_available is None:
-            _LOGGER.debug(
-                "No earliest-available marker from API for %s; "
-                "falling back to recent window start %s",
-                metering_point_no,
-                recent_window_start.isoformat(),
-            )
-            return recent_window_start
+        if not covered_hours:
+            earliest = self._earliest_available_by_metering_point.get(metering_point_no)
+            if earliest is None:
+                _LOGGER.warning(
+                    "No price statistics in [%s, %s) for %s and earliest hourly "
+                    "availability is unknown; starting from two_weeks_ago",
+                    two_weeks_ago.isoformat(),
+                    now.isoformat(),
+                    metering_point_no,
+                )
+                return two_weeks_ago, True
 
-        max_lookback_start = range_end - (window * MAX_FULL_BACKFILL_STEPS)
-        bounded_start = max(earliest_available, max_lookback_start)
-        if bounded_start != earliest_available:
-            _LOGGER.debug(
-                "Earliest available start for %s bounded from %s to %s by max windows",
+            _LOGGER.info(
+                "No price statistics in [%s, %s) for %s; scheduling historical sync "
+                "from earliest_hourly_available_at_utc=%s",
+                two_weeks_ago.isoformat(),
+                now.isoformat(),
                 metering_point_no,
-                earliest_available.isoformat(),
-                bounded_start.isoformat(),
+                earliest.isoformat(),
             )
-        return bounded_start
+            return earliest, True
 
-    async def has_existing_price_statistics(self) -> bool:
-        """Return true when any metering point already has price statistics."""
+        missing_hour = self._find_first_missing_hour(two_weeks_ago, now, covered_hours)
+        if missing_hour is None:
+            return now, False
+
+        return missing_hour, False
+
+    async def _get_price_statistic_hours(
+        self,
+        metering_point_no: str,
+        from_date: datetime,
+        to_date: datetime,
+    ) -> set[datetime]:
+        """Return available hourly starts for price statistics in a time range."""
+        statistic_id = self._build_price_statistic_id(metering_point_no)
         try:
-            metering_points = await self.get_metering_points()
-        except APIError as exc:
+            result = await get_instance(self._hass).async_add_executor_job(
+                lambda: statistics_during_period(
+                    self._hass,
+                    start_time=from_date,
+                    end_time=to_date,
+                    statistic_ids={statistic_id},
+                    period="hour",
+                    units=None,
+                    types={"max"},
+                )
+            )
+        except Exception as exc:
             _LOGGER.warning(
-                "Could not load metering points for historical backfill check, "
-                "assuming statistics already exist and skipping auto backfill: %s",
+                "Could not read price statistics coverage for %s: %s",
+                statistic_id,
                 exc,
             )
-            return True
+            return set()
 
-        for point in metering_points:
-            try:
-                latest_start = await self._get_latest_statistics_start(
-                    point.metering_point_no,
-                    statistic_ids=(
-                        self._build_price_statistic_id(point.metering_point_no),
-                    ),
-                    raise_on_error=True,
-                )
-            except Exception as exc:  # pragma: no cover - safety fallback
-                _LOGGER.warning(
-                    "Could not check existing price statistics for %s, "
-                    "assuming statistics already exist and skipping auto backfill: %s",
-                    point.metering_point_no,
-                    exc,
-                )
-                return True
-            if latest_start is not None:
-                return True
+        rows = result.get(statistic_id) if result else None
+        if not rows:
+            return set()
 
-        return False
+        starts: set[datetime] = set()
+        for row in rows:
+            start = self._parse_stat_start(row.get("start"))
+            if start is None:
+                continue
+            starts.add(start)
+        return starts
+
+    @staticmethod
+    def _find_first_missing_hour(
+        from_date: datetime,
+        to_date: datetime,
+        covered_hours: set[datetime],
+    ) -> datetime | None:
+        """Return first missing hour in [from_date, to_date)."""
+        current = dt_util.as_utc(from_date).replace(minute=0, second=0, microsecond=0)
+        range_end = dt_util.as_utc(to_date).replace(minute=0, second=0, microsecond=0)
+        while current < range_end:
+            if current not in covered_hours:
+                return current
+            current += timedelta(hours=1)
+        return None
 
     async def _get_latest_statistics_start(
         self,
@@ -551,51 +547,43 @@ class FortumAPIClient:
         raise_on_error: bool = False,
     ) -> datetime | None:
         """Return the latest recorded statistics timestamp for a metering point."""
-        if statistic_ids is None:
-            statistic_ids = (self._build_price_statistic_id(metering_point_no),)
+        del statistic_ids
+        try:
+            covered_hours = await self._get_price_statistic_hours(
+                metering_point_no,
+                datetime(2000, 1, 1, tzinfo=ZoneInfo("UTC")),
+                dt_util.utcnow(),
+            )
+        except Exception:
+            if raise_on_error:
+                raise
+            return None
+        if not covered_hours:
+            return None
+        return max(covered_hours)
 
-        latest_start: datetime | None = None
-        for statistic_id in statistic_ids:
-            try:
-                result = await get_instance(self._hass).async_add_executor_job(
-                    lambda sid=statistic_id: get_last_statistics(
-                        self._hass,
-                        1,
-                        sid,
-                        False,
-                        {"max"},
-                    )
-                )
-            except Exception as exc:
-                if raise_on_error:
-                    raise
-                _LOGGER.debug(
-                    "Could not read existing statistics for %s: %s",
-                    statistic_id,
-                    exc,
-                )
-                continue
-            rows = result.get(statistic_id) if result else None
-            if not rows:
-                continue
+    @staticmethod
+    def _parse_stat_start(start_raw: Any) -> datetime | None:
+        """Parse recorder row start timestamp into normalized UTC hour."""
+        if isinstance(start_raw, datetime):
+            start = start_raw
+        elif isinstance(start_raw, str):
+            parsed = dt_util.parse_datetime(start_raw)
+            if parsed is None:
+                return None
+            start = parsed
+        else:
+            return None
 
-            start = rows[0].get("start")
-            if not isinstance(start, datetime):
-                continue
-
-            start = dt_util.as_utc(start).replace(minute=0, second=0, microsecond=0)
-            if latest_start is None or start > latest_start:
-                latest_start = start
-
-        return latest_start
+        return dt_util.as_utc(start).replace(minute=0, second=0, microsecond=0)
 
     async def _sync_statistics_window(
         self,
         metering_point_no: str,
         from_date: datetime,
         to_date: datetime,
-        newest_first: bool = False,
-        dry_run: bool = False,
+        *,
+        continue_after_missing: bool,
     ) -> int:
         """Fetch and import statistics for a metering point/time window."""
 
@@ -611,9 +599,6 @@ class FortumAPIClient:
         imported_points = 0
         for time_series in time_series_list:
             self._record_earliest_available_marker(time_series, from_date)
-
-            if dry_run:
-                continue
 
             consumption_statistic_id = self._build_consumption_statistic_id(
                 time_series.metering_point_no
@@ -633,11 +618,7 @@ class FortumAPIClient:
             price_statistics = []
             temperature_statistics = []
             first_missing_price_at: datetime | None = None
-            ordered_points = sorted(
-                time_series.series,
-                key=lambda item: item.at_utc,
-                reverse=newest_first,
-            )
+            ordered_points = sorted(time_series.series, key=lambda item: item.at_utc)
             for point in ordered_points:
                 point_time = dt_util.as_utc(point.at_utc).replace(
                     minute=0,
@@ -653,18 +634,28 @@ class FortumAPIClient:
                     continue
 
                 if first_missing_price_at is not None:
-                    _LOGGER.warning(
-                        (
-                            "Detected price values after missing price gap for %s "
-                            "(first missing at %s, later point at %s). "
-                            "Skipping remaining points in window to avoid "
-                            "inconsistent statistics import."
-                        ),
-                        time_series.metering_point_no,
-                        first_missing_price_at.isoformat(),
-                        point_time.isoformat(),
-                    )
-                    break
+                    if continue_after_missing:
+                        _LOGGER.debug(
+                            "Continuing after missing price gap for %s "
+                            "(first missing at %s, resumed at %s)",
+                            time_series.metering_point_no,
+                            first_missing_price_at.isoformat(),
+                            point_time.isoformat(),
+                        )
+                        first_missing_price_at = None
+                    else:
+                        _LOGGER.warning(
+                            (
+                                "Detected price values after missing price gap for %s "
+                                "(first missing at %s, later point at %s). "
+                                "Skipping remaining points in window to avoid "
+                                "inconsistent statistics import."
+                            ),
+                            time_series.metering_point_no,
+                            first_missing_price_at.isoformat(),
+                            point_time.isoformat(),
+                        )
+                        break
 
                 consumption_value = float(point.total_energy)
                 consumption_statistics.append(

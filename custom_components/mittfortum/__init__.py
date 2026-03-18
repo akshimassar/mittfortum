@@ -216,12 +216,6 @@ async def _async_post_setup_refreshes(
 
         await price_coordinator.async_refresh()
         _LOGGER.debug("Async initial price refresh completed for %s", entry.entry_id)
-
-        await coordinator.async_schedule_initial_backfill()
-        _LOGGER.debug(
-            "Async initial backfill scheduling completed for %s",
-            entry.entry_id,
-        )
     except Exception:
         _LOGGER.exception(
             "Async post-setup refresh failed for entry_id=%s",
