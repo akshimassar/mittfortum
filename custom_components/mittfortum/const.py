@@ -80,7 +80,6 @@ PRICE_SENSOR_KEY = "price_per_kwh"
 STATS_SYNC_SENSOR_KEY = "statistics_last_sync"
 FULL_SYNC_BUTTON_KEY = "statistics_full_sync"
 CLEAR_STATS_BUTTON_KEY = "statistics_clear_all"
-CLEAR_TOTAL_STATS_BUTTON_KEY = "statistics_clear_totals"
 
 # Statistics backfill configuration
 STATISTICS_BACKFILL_DAYS = 14

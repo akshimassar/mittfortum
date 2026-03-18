@@ -126,17 +126,6 @@ class TestMittFortumDataCoordinator:
         assert coordinator.last_statistics_sync is None
         mock_api_client.clear_hourly_statistics.assert_awaited_once()
 
-    async def test_async_clear_total_statistics_calls_api(
-        self, coordinator, mock_api_client
-    ):
-        """Clearing total statistics should call API client clear method."""
-        mock_api_client.clear_total_statistics.return_value = 2
-
-        cleared = await coordinator.async_clear_total_statistics()
-
-        assert cleared == 2
-        mock_api_client.clear_total_statistics.assert_awaited_once()
-
 
 class TestMittFortumPriceCoordinator:
     """Test MittFortum price coordinator."""

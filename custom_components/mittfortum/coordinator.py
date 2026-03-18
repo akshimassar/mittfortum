@@ -59,12 +59,6 @@ class MittFortumDataCoordinator(DataUpdateCoordinator[list[ConsumptionData]]):
         self.async_update_listeners()
         return cleared
 
-    async def async_clear_total_statistics(self) -> int:
-        """Clear cumulative total statistics for this integration."""
-        cleared = await self.api_client.clear_total_statistics()
-        self.async_update_listeners()
-        return cleared
-
     async def _async_update_data(self) -> list[ConsumptionData]:
         """Fetch data from API."""
         try:

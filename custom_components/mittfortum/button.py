@@ -10,7 +10,6 @@ from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
     CLEAR_STATS_BUTTON_KEY,
-    CLEAR_TOTAL_STATS_BUTTON_KEY,
     CONF_DEBUG_ENTITIES,
     DEFAULT_DEBUG_ENTITIES,
     DOMAIN,
@@ -50,10 +49,6 @@ async def async_setup_entry(
                 device=device,
             ),
             MittFortumClearStatisticsButton(
-                coordinator=coordinator,
-                device=device,
-            ),
-            MittFortumClearTotalStatisticsButton(
                 coordinator=coordinator,
                 device=device,
             ),
@@ -105,7 +100,7 @@ class MittFortumClearStatisticsButton(MittFortumEntity, ButtonEntity):
             coordinator=coordinator,
             device=device,
             entity_key=CLEAR_STATS_BUTTON_KEY,
-            name="Clear Statistics (hourly + totals)",
+            name="Clear Statistics",
         )
 
     async def async_press(self) -> None:
@@ -117,34 +112,5 @@ class MittFortumClearStatisticsButton(MittFortumEntity, ButtonEntity):
 
         _LOGGER.info(
             "Statistics clear triggered manually, removed %d statistic ids",
-            cleared,
-        )
-
-
-class MittFortumClearTotalStatisticsButton(MittFortumEntity, ButtonEntity):
-    """Debug button to clear imported total statistics."""
-
-    def __init__(
-        self,
-        coordinator: MittFortumDataCoordinator,
-        device: MittFortumDevice,
-    ) -> None:
-        """Initialize clear total statistics button."""
-        super().__init__(
-            coordinator=coordinator,
-            device=device,
-            entity_key=CLEAR_TOTAL_STATS_BUTTON_KEY,
-            name="Clear Total Statistics",
-        )
-
-    async def async_press(self) -> None:
-        """Clear imported total statistics for MittFortum metering points."""
-        try:
-            cleared = await self.coordinator.async_clear_total_statistics()
-        except APIError as exc:
-            raise HomeAssistantError(f"Clear total statistics failed: {exc}") from exc
-
-        _LOGGER.info(
-            "Total statistics clear triggered manually, removed %d statistic ids",
             cleared,
         )

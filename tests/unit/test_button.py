@@ -7,7 +7,6 @@ from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.mittfortum.button import (
     MittFortumClearStatisticsButton,
-    MittFortumClearTotalStatisticsButton,
     MittFortumFullHistoryResyncButton,
 )
 from custom_components.mittfortum.device import MittFortumDevice
@@ -76,30 +75,4 @@ async def test_clear_statistics_button_surfaces_api_errors() -> None:
     button = MittFortumClearStatisticsButton(coordinator, _mock_device())
 
     with pytest.raises(HomeAssistantError, match="Clear statistics failed"):
-        await button.async_press()
-
-
-async def test_clear_total_statistics_button_triggers_clear() -> None:
-    """Button press should clear imported total statistics."""
-    coordinator = Mock()
-    coordinator.last_update_success = True
-    coordinator.data = []
-    coordinator.async_clear_total_statistics = AsyncMock(return_value=2)
-
-    button = MittFortumClearTotalStatisticsButton(coordinator, _mock_device())
-    await button.async_press()
-
-    coordinator.async_clear_total_statistics.assert_awaited_once_with()
-
-
-async def test_clear_total_statistics_button_surfaces_api_errors() -> None:
-    """Button press should raise HomeAssistantError when total clear fails."""
-    coordinator = Mock()
-    coordinator.last_update_success = True
-    coordinator.data = []
-    coordinator.async_clear_total_statistics = AsyncMock(side_effect=APIError("boom"))
-
-    button = MittFortumClearTotalStatisticsButton(coordinator, _mock_device())
-
-    with pytest.raises(HomeAssistantError, match="Clear total statistics failed"):
         await button.async_press()

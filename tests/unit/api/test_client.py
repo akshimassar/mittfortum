@@ -1,6 +1,7 @@
 """Unit tests for FortumAPIClient."""
 
 from datetime import datetime, timedelta
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -705,40 +706,6 @@ class TestFortumAPIClient:
         assert mock_sync_forward.call_args.args[1] == earliest_start
         assert mock_sync_forward.call_args.kwargs["continue_after_missing"] is True
 
-    async def test_backfill_hourly_statistics_runs_totals_even_when_no_hourly_sync(
-        self, mock_hass, mock_auth_client
-    ):
-        """Totals sync should run even when hourly sync start is already up to date."""
-        client = FortumAPIClient(mock_hass, mock_auth_client)
-        fixed_now = datetime.fromisoformat("2026-03-18T00:00:00+00:00")
-
-        with (
-            patch.object(
-                client,
-                "get_metering_points",
-                return_value=[MeteringPoint(metering_point_no="6094111")],
-            ),
-            patch.object(
-                client,
-                "_determine_sync_start",
-                return_value=(fixed_now, False),
-            ),
-            patch.object(client, "_sync_statistics_range_forward") as mock_sync_forward,
-            patch.object(
-                client,
-                "_sync_total_statistics_for_metering_point",
-                return_value=0,
-            ) as mock_totals,
-            patch(
-                "custom_components.mittfortum.api.client.dt_util.utcnow",
-                return_value=fixed_now,
-            ),
-        ):
-            await client.backfill_hourly_statistics()
-
-        mock_sync_forward.assert_not_called()
-        mock_totals.assert_called_once_with("6094111", fixed_now)
-
     async def test_get_price_statistic_hours_parses_string_timestamp(
         self, mock_hass, mock_auth_client
     ):
@@ -812,129 +779,6 @@ class TestFortumAPIClient:
 
         assert start == cached_earliest
         assert historical is True
-
-    async def test_total_checkpoint_falls_back_to_earliest_hourly_row(
-        self, mock_hass, mock_auth_client
-    ):
-        """When no totals exist, checkpoint should use earliest hourly recorder row."""
-        client = FortumAPIClient(mock_hass, mock_auth_client)
-
-        with (
-            patch.object(
-                client,
-                "_get_earliest_hourly_statistics_start",
-                return_value=datetime.fromisoformat("2026-03-04T15:00:00+00:00"),
-            ) as mock_earliest,
-            patch(
-                "custom_components.mittfortum.api.client.get_instance",
-                return_value=Mock(async_add_executor_job=AsyncMock(return_value={})),
-            ),
-        ):
-            (
-                checkpoint,
-                total_consumption,
-                total_cost,
-            ) = await client._get_total_statistics_checkpoint("6094111")
-
-        mock_earliest.assert_awaited_once_with("6094111")
-        assert checkpoint == datetime.fromisoformat("2026-03-04T14:00:00+00:00")
-        assert total_consumption == 0.0
-        assert total_cost == 0.0
-
-    async def test_total_checkpoint_falls_back_to_two_weeks_ago_with_error_log(
-        self, mock_hass, mock_auth_client
-    ):
-        """When no hourly stats exist, totals checkpoint falls back to two weeks ago."""
-        client = FortumAPIClient(mock_hass, mock_auth_client)
-        fixed_now = datetime.fromisoformat("2026-03-18T12:34:56+00:00")
-
-        with (
-            patch.object(
-                client,
-                "_get_earliest_hourly_statistics_start",
-                return_value=None,
-            ) as mock_earliest,
-            patch(
-                "custom_components.mittfortum.api.client.get_instance",
-                return_value=Mock(async_add_executor_job=AsyncMock(return_value={})),
-            ),
-            patch(
-                "custom_components.mittfortum.api.client.dt_util.utcnow",
-                return_value=fixed_now,
-            ),
-            patch(
-                "custom_components.mittfortum.api.client._LOGGER.error"
-            ) as mock_error,
-        ):
-            (
-                checkpoint,
-                total_consumption,
-                total_cost,
-            ) = await client._get_total_statistics_checkpoint("6094111")
-
-        mock_earliest.assert_awaited_once_with("6094111")
-        mock_error.assert_called_once()
-        assert checkpoint == datetime.fromisoformat("2026-03-04T11:00:00+00:00")
-        assert total_consumption == 0.0
-        assert total_cost == 0.0
-
-    async def test_total_checkpoint_rebuilds_consumption_seed_when_missing(
-        self, mock_hass, mock_auth_client
-    ):
-        """When total consumption row is missing, rebuild seed from hourly rows."""
-        client = FortumAPIClient(mock_hass, mock_auth_client)
-        cost_sid = client._build_total_cost_statistic_id("6094111")
-        consumption_sid = client._build_total_consumption_statistic_id("6094111")
-
-        def _fake_get_last_statistics(_hass, _n, statistic_id, _include, _types):
-            if statistic_id == cost_sid:
-                return {
-                    cost_sid: [
-                        {
-                            "start": datetime.fromisoformat(
-                                "2026-03-17T22:00:00+00:00"
-                            ),
-                            "state": 4.5,
-                        }
-                    ]
-                }
-            if statistic_id == consumption_sid:
-                return {}
-            return {}
-
-        recorder_instance = Mock()
-        recorder_instance.async_add_executor_job = AsyncMock(
-            side_effect=lambda fn: fn()
-        )
-
-        with (
-            patch(
-                "custom_components.mittfortum.api.client.get_instance",
-                return_value=recorder_instance,
-            ),
-            patch(
-                "custom_components.mittfortum.api.client.get_last_statistics",
-                side_effect=_fake_get_last_statistics,
-            ),
-            patch.object(
-                client,
-                "_sum_hourly_values_up_to",
-                return_value=(7.25, 4.5),
-            ) as mock_sum,
-        ):
-            (
-                checkpoint,
-                total_consumption,
-                total_cost,
-            ) = await client._get_total_statistics_checkpoint("6094111")
-
-        assert checkpoint == datetime.fromisoformat("2026-03-17T22:00:00+00:00")
-        assert total_consumption == 7.25
-        assert total_cost == 4.5
-        mock_sum.assert_awaited_once_with(
-            "6094111",
-            datetime.fromisoformat("2026-03-17T22:00:00+00:00"),
-        )
 
     async def test_backfill_stops_after_missing_price_gap(
         self, mock_hass, mock_auth_client
@@ -1026,15 +870,10 @@ class TestFortumAPIClient:
     async def test_clear_hourly_statistics_clears_all_statistic_ids(
         self, mock_hass, mock_auth_client
     ):
-        """Clear-all helper should clear hourly and total statistic ids."""
+        """Clear helper should clear all generated hourly statistic ids."""
         client = FortumAPIClient(mock_hass, mock_auth_client)
         client._hass.loop = Mock()
         client._hass.loop.call_soon_threadsafe = lambda fn: fn()
-        client._latest_total_values_by_metering_point["6094111"] = {
-            "consumption": 1.0,
-            "cost": 2.0,
-            "at": datetime.fromisoformat("2026-03-10T00:00:00+00:00"),
-        }
         recorder_instance = Mock()
 
         def _clear(statistic_ids, *, on_done=None):
@@ -1056,189 +895,148 @@ class TestFortumAPIClient:
         ):
             cleared = await client.clear_hourly_statistics()
 
-        assert cleared == 6
-        assert client._latest_total_values_by_metering_point == {}
+        assert cleared == 4
         recorder_instance.async_clear_statistics.assert_called_once()
 
-    async def test_clear_total_statistics_clears_only_total_statistic_ids(
+    async def test_hourly_statistics_sum_not_double_counted_across_repeated_runs(
         self, mock_hass, mock_auth_client
     ):
-        """Total-clear helper should clear only total statistic ids."""
+        """Hourly sum should remain cumulative and stable across repeated runs."""
         client = FortumAPIClient(mock_hass, mock_auth_client)
-        client._hass.loop = Mock()
-        client._hass.loop.call_soon_threadsafe = lambda fn: fn()
-        client._latest_total_values_by_metering_point["6094111"] = {
-            "consumption": 1.0,
-            "cost": 2.0,
-            "at": datetime.fromisoformat("2026-03-10T00:00:00+00:00"),
-        }
-        recorder_instance = Mock()
+        from_date = datetime.fromisoformat("2026-03-10T00:00:00+00:00")
+        to_date = datetime.fromisoformat("2026-03-10T03:00:00+00:00")
 
-        captured_ids: list[str] = []
+        hourly_consumption_sid = client._build_consumption_statistic_id("6094111")
+        hourly_cost_sid = client._build_cost_statistic_id("6094111")
 
-        def _clear(statistic_ids, *, on_done=None):
-            captured_ids.extend(statistic_ids)
-            if on_done:
-                on_done()
-
-        recorder_instance.async_clear_statistics.side_effect = _clear
-
-        with (
-            patch.object(
-                client,
-                "get_metering_points",
-                return_value=[MeteringPoint(metering_point_no="6094111")],
-            ),
-            patch(
-                "custom_components.mittfortum.api.client.get_instance",
-                return_value=recorder_instance,
-            ),
-        ):
-            cleared = await client.clear_total_statistics()
-
-        assert cleared == 2
-        assert sorted(captured_ids) == sorted(
-            [
-                "mittfortum:total_consumption_6094111",
-                "mittfortum:total_cost_6094111",
-            ]
+        time_series = TimeSeries(
+            delivery_site_category="CONSUMPTION",
+            measurement_unit="kWh",
+            metering_point_no="6094111",
+            price_unit="c/kWh",
+            cost_unit="EUR",
+            temperature_unit="celsius",
+            series=[
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-10T00:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=1.0, type="ENERGY")],
+                    cost=[
+                        CostDataPoint(
+                            total=0.5,
+                            value=0.5,
+                            type="COST_SALES_ELECTRICITY",
+                        )
+                    ],
+                    price=Price(
+                        total=1.0,
+                        value=0.8,
+                        vat_amount=0.2,
+                        vat_percentage=25,
+                    ),
+                    temperature_reading=None,
+                ),
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-10T01:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=2.0, type="ENERGY")],
+                    cost=[
+                        CostDataPoint(
+                            total=1.5,
+                            value=1.5,
+                            type="COST_SALES_ELECTRICITY",
+                        )
+                    ],
+                    price=Price(
+                        total=1.1,
+                        value=0.9,
+                        vat_amount=0.2,
+                        vat_percentage=25,
+                    ),
+                    temperature_reading=None,
+                ),
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-10T02:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=3.0, type="ENERGY")],
+                    cost=[
+                        CostDataPoint(
+                            total=2.5,
+                            value=2.5,
+                            type="COST_SALES_ELECTRICITY",
+                        )
+                    ],
+                    price=Price(
+                        total=1.2,
+                        value=1.0,
+                        vat_amount=0.2,
+                        vat_percentage=25,
+                    ),
+                    temperature_reading=None,
+                ),
+            ],
         )
-        assert client._latest_total_values_by_metering_point == {}
-
-    async def test_total_statistics_are_not_double_counted_across_repeated_runs(
-        self, mock_hass, mock_auth_client
-    ):
-        """Total stats should remain equal to hourly sum across repeated executions."""
-        client = FortumAPIClient(mock_hass, mock_auth_client)
-        mp_no = "6094111"
-        now = datetime.fromisoformat("2026-03-18T00:00:00+00:00")
-        earliest = datetime.fromisoformat("2026-03-10T00:00:00+00:00")
-        client._earliest_available_by_metering_point[mp_no] = earliest
-
-        hourly_consumption_sid = client._build_consumption_statistic_id(mp_no)
-        hourly_cost_sid = client._build_cost_statistic_id(mp_no)
-        total_consumption_sid = client._build_total_consumption_statistic_id(mp_no)
-        total_cost_sid = client._build_total_cost_statistic_id(mp_no)
-
-        hourly_consumption_rows = {
-            datetime.fromisoformat("2026-03-10T00:00:00+00:00"): 1.0,
-            datetime.fromisoformat("2026-03-10T01:00:00+00:00"): 2.0,
-            datetime.fromisoformat("2026-03-10T02:00:00+00:00"): 3.0,
+        import_store: dict[str, list[dict[str, float | datetime]]] = {
+            hourly_consumption_sid: [],
+            hourly_cost_sid: [],
         }
-        hourly_cost_rows = {
-            datetime.fromisoformat("2026-03-10T00:00:00+00:00"): 0.5,
-            datetime.fromisoformat("2026-03-10T01:00:00+00:00"): 1.5,
-            datetime.fromisoformat("2026-03-10T02:00:00+00:00"): 2.5,
-        }
-        total_store: dict[str, list[dict[str, float | datetime]]] = {
-            total_consumption_sid: [],
-            total_cost_sid: [],
-        }
-        metadata_by_sid: dict[str, dict] = {}
+        metadata_by_sid: dict[str, dict[str, Any]] = {}
 
-        def _fake_get_last_statistics(_hass, _n, statistic_ids, _include, _types):
-            ids = [statistic_ids] if isinstance(statistic_ids, str) else statistic_ids
-            result: dict[str, list[dict[str, float | datetime]]] = {}
-            for sid in ids:
-                rows = total_store.get(sid, [])
-                if rows:
-                    result[sid] = [max(rows, key=lambda row: row["start"])]
-            return result
-
-        def _fake_statistics_during_period(
-            _hass,
-            start_time,
-            end_time,
-            statistic_ids,
-            period,
-            units,
-            types,
-        ):
-            del period, units, types
-            result: dict[str, list[dict[str, float | datetime]]] = {}
-            if hourly_consumption_sid in statistic_ids:
-                result[hourly_consumption_sid] = [
-                    {"start": at, "state": value}
-                    for at, value in hourly_consumption_rows.items()
-                    if start_time <= at < end_time
-                ]
-            if hourly_cost_sid in statistic_ids:
-                result[hourly_cost_sid] = [
-                    {"start": at, "state": value}
-                    for at, value in hourly_cost_rows.items()
-                    if start_time <= at < end_time
-                ]
-            return result
+        def _seed_sum(statistic_id: str, hour: datetime) -> float:
+            previous_hour = hour - timedelta(hours=1)
+            rows = import_store.get(statistic_id, [])
+            for row in rows:
+                if row["start"] == previous_hour:
+                    return float(cast("float", row["sum"]))
+            return 0.0
 
         def _fake_add_external_statistics(_hass, metadata, rows):
             sid = metadata["statistic_id"]
             metadata_by_sid[sid] = metadata
-            if sid not in total_store:
+            if sid not in import_store:
                 return
+            existing_by_hour = {row["start"]: row for row in import_store[sid]}
             for row in rows:
-                total_store[sid].append(
-                    {
-                        "start": row["start"],
-                        "state": float(row["state"]),
-                    }
-                )
-
-        recorder_instance = Mock()
-        recorder_instance.async_add_executor_job = AsyncMock(
-            side_effect=lambda fn: fn()
-        )
+                existing_by_hour[row["start"]] = {
+                    "start": row["start"],
+                    "state": float(row["state"]),
+                    "sum": float(cast("float", row.get("sum", 0.0))),
+                }
+            import_store[sid] = sorted(
+                existing_by_hour.values(), key=lambda item: item["start"]
+            )
 
         with (
-            patch(
-                "custom_components.mittfortum.api.client.get_instance",
-                return_value=recorder_instance,
-            ),
-            patch(
-                "custom_components.mittfortum.api.client.get_last_statistics",
-                side_effect=_fake_get_last_statistics,
-            ),
-            patch(
-                "custom_components.mittfortum.api.client.statistics_during_period",
-                side_effect=_fake_statistics_during_period,
-            ),
             patch(
                 "custom_components.mittfortum.api.client.async_add_external_statistics",
                 side_effect=_fake_add_external_statistics,
             ),
+            patch.object(client, "get_time_series_data", return_value=[time_series]),
+            patch.object(
+                client,
+                "_get_stat_sum_before_hour",
+                side_effect=_seed_sum,
+            ),
         ):
-            await client._sync_total_statistics_for_metering_point(mp_no, now)
-            await client._sync_total_statistics_for_metering_point(mp_no, now)
-            await client._sync_total_statistics_for_metering_point(mp_no, now)
+            await client._sync_statistics_window(
+                "6094111",
+                from_date,
+                to_date,
+                continue_after_missing=False,
+            )
+            await client._sync_statistics_window(
+                "6094111",
+                from_date,
+                to_date,
+                continue_after_missing=False,
+            )
+            await client._sync_statistics_window(
+                "6094111",
+                from_date,
+                to_date,
+                continue_after_missing=False,
+            )
 
-        latest_totals = client.get_latest_total_values(mp_no)
-        assert latest_totals is not None
-        assert latest_totals["consumption"] == 6.0
-        assert latest_totals["cost"] == 4.5
-
-        last_total_consumption = max(
-            total_store[total_consumption_sid],
-            key=lambda row: row["start"],
-        )
-        last_total_cost = max(total_store[total_cost_sid], key=lambda row: row["start"])
-        assert last_total_consumption["state"] == 6.0
-        assert last_total_cost["state"] == 4.5
-        assert metadata_by_sid[total_consumption_sid]["has_sum"] is True
-        assert metadata_by_sid[total_consumption_sid]["has_mean"] is False
-        assert metadata_by_sid[total_cost_sid]["has_sum"] is True
-        assert metadata_by_sid[total_cost_sid]["has_mean"] is False
-
-    def test_extract_numeric_stat_value_uses_max_when_state_missing(
-        self, mock_hass, mock_auth_client
-    ):
-        """Totals math should support recorder rows without explicit state key."""
-        client = FortumAPIClient(mock_hass, mock_auth_client)
-
-        value = client._extract_numeric_stat_value(
-            {
-                "start": datetime.fromisoformat("2026-03-10T00:00:00+00:00"),
-                "mean": 1.5,
-                "max": 2.5,
-            }
-        )
-
-        assert value == 2.5
+        last_hourly_consumption = import_store[hourly_consumption_sid][-1]
+        last_hourly_cost = import_store[hourly_cost_sid][-1]
+        assert last_hourly_consumption["sum"] == 6.0
+        assert last_hourly_cost["sum"] == 4.5
+        assert metadata_by_sid[hourly_consumption_sid]["has_sum"] is True
+        assert metadata_by_sid[hourly_cost_sid]["has_sum"] is True
