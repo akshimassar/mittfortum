@@ -65,6 +65,10 @@ The integration creates these regular entities:
 
 Additionally, it imports hourly Recorder statistics for each available metering point:
 
+These appear in Home Assistant as **"Entity without state"** entities (statistics-only entities), so they are not shown in **Developer Tools -> States** or listed under the integration's regular entity list.
+
+![Home Assistant showing Entity without state badge](entity_without_state.png)
+
 - `mittfortum:hourly_consumption_<metering_point_no>`
 - `mittfortum:hourly_cost_<metering_point_no>`
 - `mittfortum:hourly_price_<metering_point_no>`
