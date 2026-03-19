@@ -6,6 +6,7 @@ A Home Assistant custom integration for accessing energy consumption data from F
 
 - **Current electricity price**: Imports Fortum 15-minute spot price data and updates it in Home Assistant every 5 minutes.
 - **Hourly historical statistics**: Imports hourly consumption, cost, price, and temperature and backfills missing history on a regular interval.
+- **Full available history**: Historical sync covers the entire period Fortum exposes for your metering point, which is often multiple years.
 - **Long-term visibility**: Stores imported data as Home Assistant long-term statistics, so it can be charted over long periods.
 - **Multi-meter support**: Creates separate statistics series for each metering point found in your Fortum account.
 
@@ -37,6 +38,13 @@ A Home Assistant custom integration for accessing energy consumption data from F
 3. Search for "MittFortum"
 4. Enter your Fortum username and password
 5. Select your region and complete setup
+
+## Initial Sync Behavior
+
+- On first start, the integration performs a full historical sync for each discovered metering point.
+- The full sync covers all hourly history available from Fortum (often years).
+- Expect initial history sync to take around **3 minutes per year** of available data.
+- Integration entities become available after this initial history sync completes.
 
 ## Entities
 
