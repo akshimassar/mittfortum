@@ -2,13 +2,23 @@
 
 A Home Assistant custom integration for accessing energy consumption data from Fortum for supported regions (currently Sweden and Finland).
 
+## Historical Data Availability
+
+Historical data usually available in Fortum for the past years is synced to Home Assistant:
+
+![Energy Dashboard year view showing historical availability](energy_dashboard_year.png)
+
+All while keeping hourly resolution to it:
+
+![Energy Dashboard day view showing hourly resolution](energy_dashboard_day.png)
+
 ## Features
 
-- **Current electricity price**: Imports Fortum 15-minute spot price data and updates it in Home Assistant every 5 minutes.
 - **Hourly historical statistics**: Imports hourly consumption, cost, price, and temperature and backfills missing history on a regular interval.
 - **Full available history**: Historical sync covers the entire period Fortum exposes for your metering point, which is often multiple years.
-- **Long-term visibility**: Stores imported data as Home Assistant long-term statistics, so it can be charted over long periods.
+- **Energy Dashboard compatible**: Imported hourly consumption and cost are written as Home Assistant long-term statistics for Energy Dashboard and historical charts.
 - **Multi-meter support**: Creates separate statistics series for each metering point found in your Fortum account.
+- **Current electricity price**: Imports Fortum 15-minute spot price data and updates it in Home Assistant every 5 minutes.
 
 ## Installation
 
