@@ -794,6 +794,12 @@ class MyEnergySettingsRedirectCard extends HTMLElement {
 
   connectedCallback() {
     this._redirectTimeout = window.setTimeout(() => {
+      const skipKey = "my-energy-skip-next-settings-redirect";
+      if (sessionStorage.getItem(skipKey) === "1") {
+        sessionStorage.removeItem(skipKey);
+        return;
+      }
+
       const backPath = `${window.location.pathname}${window.location.search}`;
       const targetPath =
         "/config/energy/electricity?historyBack=1&backPath=" +
@@ -801,6 +807,8 @@ class MyEnergySettingsRedirectCard extends HTMLElement {
       if (window.location.pathname.includes("/config/energy")) {
         return;
       }
+
+      sessionStorage.setItem(skipKey, "1");
       window.history.pushState(window.history.state ?? null, "", targetPath);
       window.dispatchEvent(
         new CustomEvent("location-changed", {
