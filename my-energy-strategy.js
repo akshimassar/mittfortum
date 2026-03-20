@@ -566,6 +566,19 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
     this._collection = collection;
     this._unsubscribe = collection.subscribe((data) => {
       this._energyData = data;
+      this._updateCount = (this._updateCount || 0) + 1;
+      this._lastUpdateAt = Date.now();
+      this._scheduleRender();
+    });
+  }
+
+  _scheduleRender() {
+    if (this._renderQueued) {
+      return;
+    }
+    this._renderQueued = true;
+    requestAnimationFrame(() => {
+      this._renderQueued = false;
       this._render();
     });
   }
@@ -794,6 +807,8 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
       unspecifiedCost: unspecifiedConsumption * unitCost,
       __debug: {
         ...debug,
+        updateCount: this._updateCount || 0,
+        lastUpdateAt: this._lastUpdateAt || 0,
         fromGrid,
         toGrid,
         solar,
@@ -878,6 +893,12 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
         .join("");
 
       const debugText = [
+        `subscription updates: ${totals.__debug.updateCount}`,
+        `last update: ${
+          totals.__debug.lastUpdateAt
+            ? new Date(totals.__debug.lastUpdateAt).toLocaleTimeString()
+            : "n/a"
+        }`,
         `stats keys loaded: ${totals.__debug.statKeys}`,
         `grid from ids: ${totals.__debug.gridFromIds.join(", ") || "(none)"}`,
         `grid to ids: ${totals.__debug.gridToIds.join(", ") || "(none)"}`,
