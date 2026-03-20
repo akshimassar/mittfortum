@@ -131,7 +131,7 @@ const buildElectricityViewConfig = (prefs, collectionKey, hass) => {
       "ui.panel.energy.cards.energy_date_selection_title",
       "Time range"
     ),
-    type: "energy-date-selection",
+    type: "custom:my-energy-date-selection-card",
     collection_key: collectionKey,
     disable_compare: true,
     opening_direction: "center",
@@ -200,171 +200,68 @@ class MyEnergyDateSelectionCard extends HTMLElement {
     this._config = config || {};
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
+      this.shadowRoot.innerHTML = `
+        <style>
+          :host {
+            display: block;
+            height: 100%;
+          }
+          .container {
+            height: 100%;
+          }
+        </style>
+        <div class="container"></div>
+      `;
     }
-    this._renderShell();
     this._ensureInnerCard();
   }
 
   set hass(hass) {
     this._hass = hass;
+    this._ensureInnerCard();
     if (this._innerCard) {
       this._innerCard.hass = hass;
-      this._scheduleEnhance();
-    } else {
-      this._ensureInnerCard();
     }
-  }
-
-  disconnectedCallback() {
-    if (this._observer) {
-      this._observer.disconnect();
-      this._observer = undefined;
-    }
+    this._enforceTopPopover();
   }
 
   getCardSize() {
-    if (this._innerCard && typeof this._innerCard.getCardSize === "function") {
-      return this._innerCard.getCardSize();
-    }
     return 1;
   }
 
-  _setDefaultRange(range) {
-    const collectionKey = this._config?.collection_key || "energy";
-    localStorage.setItem(`energy-default-period-_${collectionKey}`, range);
-    window.location.reload();
-  }
-
-  _scheduleEnhance() {
-    setTimeout(() => this._enhancePeriodSelector(), 0);
-  }
-
-  _enhancePeriodSelector() {
-    const dateCardShadow = this._innerCard?.shadowRoot;
-    if (!dateCardShadow) {
+  _ensureInnerCard() {
+    if (!this.shadowRoot || this._innerCard) {
       return;
     }
-    const selector = dateCardShadow.querySelector("hui-energy-period-selector");
-    const selectorShadow = selector?.shadowRoot;
-    if (!selectorShadow) {
+    const container = this.shadowRoot.querySelector(".container");
+    if (!container) {
       return;
     }
 
-    const overflow = selectorShadow.querySelector(".date-actions .overflow");
-    if (!overflow) {
-      return;
-    }
-
-    const nowLabel =
-      selector.hass?.localize?.(
-        "ui.panel.lovelace.components.energy_period_selector.now"
-      ) || "Now";
-
-    if (!selectorShadow.querySelector(".my-energy-range-buttons")) {
-      const group = document.createElement("div");
-      group.className = "my-energy-range-buttons";
-
-      const addButton = (label, range) => {
-        const button = document.createElement("ha-button");
-        button.setAttribute("appearance", "filled");
-        button.setAttribute("size", "small");
-        button.textContent = label;
-        button.addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          this._setDefaultRange(range);
-        });
-        group.appendChild(button);
-      };
-
-      addButton("Today", "today");
-      addButton("Week", "this_week");
-      addButton("Month", "this_month");
-
-      overflow.insertBefore(group, overflow.firstChild);
-    }
-
-    selectorShadow.querySelectorAll("ha-button").forEach((button) => {
-      const text = button.textContent?.trim() || "";
-      if (text === nowLabel || text.includes(nowLabel)) {
-        button.remove();
-      }
-    });
-
-    selectorShadow.querySelectorAll("ha-dropdown-item").forEach((item) => {
-      const text = item.textContent?.trim() || "";
-      if (text === nowLabel || text.includes(nowLabel)) {
-        item.remove();
-      }
-    });
-
-    if (!selectorShadow.querySelector("style[data-my-energy-ranges]")) {
-      const style = document.createElement("style");
-      style.dataset.myEnergyRanges = "1";
-      style.textContent = `
-        .my-energy-range-buttons {
-          display: inline-flex;
-          gap: 8px;
-          margin-right: 8px;
-        }
-        .my-energy-range-buttons ha-button {
-          --ha-button-theme-color: currentColor;
-        }
-      `;
-      selectorShadow.appendChild(style);
-    }
-
-    if (!this._observer) {
-      this._observer = new MutationObserver(() => this._enhancePeriodSelector());
-      this._observer.observe(selectorShadow, { childList: true, subtree: true });
-    }
-  }
-
-  async _ensureInnerCard() {
-    if (this._creating || this._innerCard || !this._hass || !this.shadowRoot) {
-      return;
-    }
-
-    this._creating = true;
-    try {
-      const helpers = await this._hass.loadCardHelpers();
-      this._innerCard = await helpers.createCardElement({
-        type: "energy-date-selection",
-        ...this._config,
-      });
+    this._innerCard = document.createElement("hui-card");
+    this._innerCard.config = {
+      type: "energy-date-selection",
+      collection_key: this._config.collection_key,
+      disable_compare: this._config.disable_compare,
+      opening_direction: "center",
+      vertical_opening_direction: "up",
+    };
+    if (this._hass) {
       this._innerCard.hass = this._hass;
-      const container = this.shadowRoot.querySelector(".container");
-      if (container) {
-        container.replaceChildren(this._innerCard);
-      }
-      this._scheduleEnhance();
-    } catch (err) {
-      console.error("[my-energy] date selection init failed", err);
-      const container = this.shadowRoot.querySelector(".container");
-      if (container) {
-        container.innerHTML =
-          '<div style="padding:12px;color:var(--error-color);">Date selector failed to load</div>';
-      }
-    } finally {
-      this._creating = false;
     }
+    container.appendChild(this._innerCard);
+    this._enforceTopPopover();
   }
 
-  _renderShell() {
-    if (!this.shadowRoot) {
-      return;
-    }
-    this.shadowRoot.innerHTML = `
-      <style>
-        :host {
-          display: block;
-          height: 100%;
-        }
-        .container {
-          height: 100%;
-        }
-      </style>
-      <div class="container"></div>
-    `;
+  _enforceTopPopover() {
+    setTimeout(() => {
+      const dateCard = this._innerCard?.querySelector("hui-energy-date-selection-card");
+      const selector = dateCard?.shadowRoot?.querySelector("hui-energy-period-selector");
+      const picker = selector?.shadowRoot?.querySelector("ha-date-range-picker");
+      if (picker) {
+        picker.popoverPlacement = "top";
+      }
+    }, 0);
   }
 }
 
@@ -1125,6 +1022,7 @@ registerIfNeeded(
   "my-energy-consumption-summary-card",
   MyEnergyConsumptionSummaryCard
 );
+registerIfNeeded("my-energy-date-selection-card", MyEnergyDateSelectionCard);
 registerIfNeeded("my-energy-spacer-card", MyEnergySpacerCard);
 registerIfNeeded("my-energy-quick-ranges-card", MyEnergyQuickRangesCard);
 registerIfNeeded("my-energy-settings-redirect-card", MyEnergySettingsRedirectCard);
