@@ -507,6 +507,7 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
         smooth: 0.2,
         symbol: "none",
         showSymbol: false,
+        yAxisIndex: 1,
         z: 80,
         lineStyle: {
           width: 2,
@@ -554,6 +555,28 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
 
     if (!detailCard.__myEnergyOverlayPatched) {
       detailCard.__myEnergyOverlayPatched = true;
+
+      const originalCreateOptions = detailCard._createOptions?.bind(detailCard);
+      if (originalCreateOptions) {
+        detailCard._createOptions = (...args) => {
+          const options = originalCreateOptions(...args);
+          const primaryYAxis = Array.isArray(options?.yAxis)
+            ? options.yAxis[0] || { type: "value" }
+            : options?.yAxis || { type: "value" };
+
+          const secondaryYAxis = {
+            type: "value",
+            position: "right",
+            splitLine: { show: false },
+          };
+
+          return {
+            ...options,
+            yAxis: [primaryYAxis, secondaryYAxis],
+          };
+        };
+      }
+
       const originalProcess = detailCard._processStatistics?.bind(detailCard);
       if (originalProcess) {
         detailCard._processStatistics = () => {
