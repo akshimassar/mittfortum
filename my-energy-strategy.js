@@ -574,6 +574,134 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
     }, 0);
   }
 
+  _sumStatisticsByTimestamp(stats, statisticIds) {
+    const totals = {};
+    let sum = 0;
+
+    statisticIds.forEach((id) => {
+      const series = stats[id];
+      if (!series) {
+        return;
+      }
+      series.forEach((point) => {
+        if (point.change === null || point.change === undefined) {
+          return;
+        }
+        const value = point.change;
+        sum += value;
+        totals[point.start] = (totals[point.start] || 0) + value;
+      });
+    });
+
+    return { totals, sum };
+  }
+
+  _computeConsumptionSingle(data) {
+    let toGrid = Math.max(data.to_grid || 0, 0);
+    let toBattery = Math.max(data.to_battery || 0, 0);
+    let solar = Math.max(data.solar || 0, 0);
+    let fromGrid = Math.max(data.from_grid || 0, 0);
+    let fromBattery = Math.max(data.from_battery || 0, 0);
+
+    const usedTotal = fromGrid + solar + fromBattery - toGrid - toBattery;
+
+    let usedTotalRemaining = Math.max(usedTotal, 0);
+
+    const excessGridInAfterConsumption = Math.max(
+      0,
+      Math.min(toBattery, fromGrid - usedTotalRemaining)
+    );
+    toBattery -= excessGridInAfterConsumption;
+    fromGrid -= excessGridInAfterConsumption;
+
+    const solarToBattery = Math.min(solar, toBattery);
+    toBattery -= solarToBattery;
+    solar -= solarToBattery;
+
+    const solarToGrid = Math.min(solar, toGrid);
+    toGrid -= solarToGrid;
+    solar -= solarToGrid;
+
+    const batteryToGrid = Math.min(fromBattery, toGrid);
+    fromBattery -= batteryToGrid;
+    toGrid -= batteryToGrid;
+
+    const gridToBatterySecondPass = Math.min(fromGrid, toBattery);
+    fromGrid -= gridToBatterySecondPass;
+
+    const usedSolar = Math.min(usedTotalRemaining, solar);
+    usedTotalRemaining -= usedSolar;
+
+    const usedBattery = Math.min(fromBattery, usedTotalRemaining);
+    usedTotalRemaining -= usedBattery;
+
+    const usedGrid = Math.min(usedTotalRemaining, fromGrid);
+
+    return {
+      used_total: usedTotal,
+      used_grid: usedGrid,
+      used_solar: usedSolar,
+      used_battery: usedBattery,
+    };
+  }
+
+  _computeTotalConsumptionFromEnergyModel(prefs, stats) {
+    const fromGridIds = [];
+    const toGridIds = [];
+    const solarIds = [];
+    const toBatteryIds = [];
+    const fromBatteryIds = [];
+
+    prefs.energy_sources.forEach((source) => {
+      if (source.type === "grid") {
+        if (source.stat_energy_from) {
+          fromGridIds.push(source.stat_energy_from);
+        }
+        if (source.stat_energy_to) {
+          toGridIds.push(source.stat_energy_to);
+        }
+        return;
+      }
+      if (source.type === "solar") {
+        solarIds.push(source.stat_energy_from);
+        return;
+      }
+      if (source.type === "battery") {
+        fromBatteryIds.push(source.stat_energy_from);
+        toBatteryIds.push(source.stat_energy_to);
+      }
+    });
+
+    const fromGrid = this._sumStatisticsByTimestamp(stats, fromGridIds).totals;
+    const toGrid = this._sumStatisticsByTimestamp(stats, toGridIds).totals;
+    const solar = this._sumStatisticsByTimestamp(stats, solarIds).totals;
+    const fromBattery = this._sumStatisticsByTimestamp(stats, fromBatteryIds).totals;
+    const toBattery = this._sumStatisticsByTimestamp(stats, toBatteryIds).totals;
+
+    const timestamps = new Set([
+      ...Object.keys(fromGrid),
+      ...Object.keys(toGrid),
+      ...Object.keys(solar),
+      ...Object.keys(fromBattery),
+      ...Object.keys(toBattery),
+    ]);
+
+    let usedTotal = 0;
+    timestamps.forEach((ts) => {
+      const t = Number(ts);
+      const consumed = this._computeConsumptionSingle({
+        from_grid: fromGrid[t] || 0,
+        to_grid: toGrid[t] || 0,
+        solar: solar[t] || 0,
+        from_battery: fromBattery[t] || 0,
+        to_battery: toBattery[t] || 0,
+      });
+      usedTotal += consumed.used_total || 0;
+    });
+
+    return Math.max(0, usedTotal);
+  }
+
   _computeTotals(data) {
     const stats = data.stats || {};
     const prefs = data.prefs || EMPTY_PREFS;
@@ -615,9 +743,9 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
       }
     }
 
-    const totalConsumption = Math.max(
-      0,
-      fromGrid + solar + fromBattery - toGrid - toBattery
+    const totalConsumption = this._computeTotalConsumptionFromEnergyModel(
+      prefs,
+      stats
     );
     const totalCost = importCost - exportCompensation;
 
