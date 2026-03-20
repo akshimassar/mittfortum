@@ -920,6 +920,8 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
         :host {
           display: block;
           height: 100%;
+          user-select: text;
+          -webkit-user-select: text;
         }
         ha-card {
           height: 100%;
@@ -941,6 +943,8 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
         td {
           padding: 8px 0;
           border-bottom: 1px solid var(--divider-color);
+          user-select: text;
+          -webkit-user-select: text;
         }
         th {
           text-align: left;
@@ -963,6 +967,8 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
           word-break: break-word;
           color: var(--secondary-text-color);
           font-size: 12px;
+          user-select: text;
+          -webkit-user-select: text;
         }
       </style>
       <ha-card>
