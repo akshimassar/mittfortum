@@ -229,6 +229,16 @@ class MyEnergyDateSelectionCard extends HTMLElement {
     return 1;
   }
 
+  disconnectedCallback() {
+    const dateCard = this._innerCard?.querySelector("hui-energy-date-selection-card");
+    const selector = dateCard?.shadowRoot?.querySelector("hui-energy-period-selector");
+    const rangeSection = selector?.shadowRoot?.querySelector(".date-range");
+    if (rangeSection && this._boundOpenHandler) {
+      rangeSection.removeEventListener("click", this._boundOpenHandler);
+    }
+    this._boundOpenHandler = undefined;
+  }
+
   _ensureInnerCard() {
     if (!this.shadowRoot || this._innerCard) {
       return;
@@ -254,14 +264,31 @@ class MyEnergyDateSelectionCard extends HTMLElement {
   }
 
   _enforceTopPopover() {
-    setTimeout(() => {
+    const apply = () => {
       const dateCard = this._innerCard?.querySelector("hui-energy-date-selection-card");
       const selector = dateCard?.shadowRoot?.querySelector("hui-energy-period-selector");
       const picker = selector?.shadowRoot?.querySelector("ha-date-range-picker");
       if (picker) {
-        picker.popoverPlacement = "top";
+        picker.popoverPlacement = "top-start";
+        const popover = picker.shadowRoot?.querySelector("wa-popover");
+        if (popover) {
+          popover.placement = "top-start";
+          popover.distance = 8;
+        }
       }
-    }, 0);
+
+      const rangeSection = selector?.shadowRoot?.querySelector(".date-range");
+      if (rangeSection && !this._boundOpenHandler) {
+        this._boundOpenHandler = () => {
+          requestAnimationFrame(() => apply());
+          setTimeout(() => apply(), 60);
+        };
+        rangeSection.addEventListener("click", this._boundOpenHandler);
+      }
+    };
+
+    requestAnimationFrame(() => apply());
+    setTimeout(() => apply(), 60);
   }
 }
 
