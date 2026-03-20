@@ -525,9 +525,15 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const languageChanged =
+      this._hass?.locale?.language !== hass?.locale?.language;
+    const currencyChanged =
+      this._hass?.config?.currency !== hass?.config?.currency;
     this._hass = hass;
     this._trySubscribe();
-    this._render();
+    if (!this._hasRendered || languageChanged || currencyChanged) {
+      this._render();
+    }
   }
 
   disconnectedCallback() {
@@ -958,6 +964,19 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
         </div>
       </ha-card>
     `;
+
+      const details = this.shadowRoot.querySelector("details");
+      if (details) {
+        details.open = !!this._debugOpen;
+        if (!this._boundDebugToggle) {
+          this._boundDebugToggle = () => {
+            this._debugOpen = details.open;
+          };
+        }
+        details.addEventListener("toggle", this._boundDebugToggle);
+      }
+
+      this._hasRendered = true;
     } catch (err) {
       console.error("[my-energy] summary render failed", err);
       this.shadowRoot.innerHTML = `
