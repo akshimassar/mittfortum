@@ -794,10 +794,16 @@ class MyEnergySettingsRedirectCard extends HTMLElement {
 
   connectedCallback() {
     this._redirectTimeout = window.setTimeout(() => {
+      const targetPath = "/config/energy/electricity?historyBack=1";
       if (window.location.pathname.includes("/config/energy")) {
         return;
       }
-      window.location.assign("/config/energy/electricity?historyBack=1");
+      window.history.pushState(window.history.state ?? null, "", targetPath);
+      window.dispatchEvent(
+        new CustomEvent("location-changed", {
+          detail: { replace: false },
+        })
+      );
     }, 50);
   }
 
