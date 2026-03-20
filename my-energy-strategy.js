@@ -127,7 +127,7 @@ const buildElectricityViewConfig = (prefs, collectionKey, hass) => {
       "ui.panel.energy.cards.energy_date_selection_title",
       "Time range"
     ),
-    type: "energy-date-selection",
+    type: "custom:my-energy-date-selection-card",
     collection_key: collectionKey,
     disable_compare: true,
     opening_direction: "right",
@@ -185,98 +185,185 @@ class MyEnergyDashboardStrategy {
   }
 }
 
-const setEnergyDefaultPeriod = (collectionKey, range) => {
-  localStorage.setItem(`energy-default-period-_${collectionKey || "energy"}`, range);
-  window.location.reload();
-};
+class MyEnergyDateSelectionCard extends HTMLElement {
+  setConfig(config) {
+    this._config = config || {};
+    if (!this.shadowRoot) {
+      this.attachShadow({ mode: "open" });
+    }
+    this._renderShell();
+    this._ensureInnerCard();
+  }
 
-const enhancePeriodSelector = (selector) => {
-  const shadow = selector.shadowRoot;
-  if (!shadow) return;
+  set hass(hass) {
+    this._hass = hass;
+    if (this._innerCard) {
+      this._innerCard.hass = hass;
+      this._scheduleEnhance();
+    } else {
+      this._ensureInnerCard();
+    }
+  }
 
-  const overflow = shadow.querySelector(".date-actions .overflow");
-  if (!overflow) return;
+  disconnectedCallback() {
+    if (this._observer) {
+      this._observer.disconnect();
+      this._observer = undefined;
+    }
+  }
 
-  const hass = selector.hass;
-  const nowLabel =
-    hass?.localize?.("ui.panel.lovelace.components.energy_period_selector.now") ||
-    "Now";
+  getCardSize() {
+    if (this._innerCard && typeof this._innerCard.getCardSize === "function") {
+      return this._innerCard.getCardSize();
+    }
+    return 1;
+  }
 
-  const existingGroup = shadow.querySelector(".my-energy-range-buttons");
-  if (!existingGroup) {
-    const group = document.createElement("div");
-    group.className = "my-energy-range-buttons";
+  getGridOptions() {
+    if (this._innerCard && typeof this._innerCard.getGridOptions === "function") {
+      return this._innerCard.getGridOptions();
+    }
+    return { rows: 1, columns: 12 };
+  }
 
-    const addButton = (label, range) => {
-      const button = document.createElement("ha-button");
-      button.setAttribute("appearance", "filled");
-      button.setAttribute("size", "small");
-      button.textContent = label;
-      button.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        setEnergyDefaultPeriod(selector.collectionKey, range);
+  _setDefaultRange(range) {
+    const collectionKey = this._config?.collection_key || "energy";
+    localStorage.setItem(`energy-default-period-_${collectionKey}`, range);
+    window.location.reload();
+  }
+
+  _scheduleEnhance() {
+    setTimeout(() => this._enhancePeriodSelector(), 0);
+  }
+
+  _enhancePeriodSelector() {
+    const dateCardShadow = this._innerCard?.shadowRoot;
+    if (!dateCardShadow) {
+      return;
+    }
+    const selector = dateCardShadow.querySelector("hui-energy-period-selector");
+    const selectorShadow = selector?.shadowRoot;
+    if (!selectorShadow) {
+      return;
+    }
+
+    const overflow = selectorShadow.querySelector(".date-actions .overflow");
+    if (!overflow) {
+      return;
+    }
+
+    const nowLabel =
+      selector.hass?.localize?.(
+        "ui.panel.lovelace.components.energy_period_selector.now"
+      ) || "Now";
+
+    if (!selectorShadow.querySelector(".my-energy-range-buttons")) {
+      const group = document.createElement("div");
+      group.className = "my-energy-range-buttons";
+
+      const addButton = (label, range) => {
+        const button = document.createElement("ha-button");
+        button.setAttribute("appearance", "filled");
+        button.setAttribute("size", "small");
+        button.textContent = label;
+        button.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          this._setDefaultRange(range);
+        });
+        group.appendChild(button);
+      };
+
+      addButton("Today", "today");
+      addButton("Week", "this_week");
+      addButton("Month", "this_month");
+
+      overflow.insertBefore(group, overflow.firstChild);
+    }
+
+    selectorShadow.querySelectorAll("ha-button").forEach((button) => {
+      const text = button.textContent?.trim() || "";
+      if (text === nowLabel || text.includes(nowLabel)) {
+        button.remove();
+      }
+    });
+
+    selectorShadow.querySelectorAll("ha-dropdown-item").forEach((item) => {
+      const text = item.textContent?.trim() || "";
+      if (text === nowLabel || text.includes(nowLabel)) {
+        item.remove();
+      }
+    });
+
+    if (!selectorShadow.querySelector("style[data-my-energy-ranges]")) {
+      const style = document.createElement("style");
+      style.dataset.myEnergyRanges = "1";
+      style.textContent = `
+        .my-energy-range-buttons {
+          display: inline-flex;
+          gap: 8px;
+          margin-right: 8px;
+        }
+        .my-energy-range-buttons ha-button {
+          --ha-button-theme-color: currentColor;
+        }
+      `;
+      selectorShadow.appendChild(style);
+    }
+
+    if (!this._observer) {
+      this._observer = new MutationObserver(() => this._enhancePeriodSelector());
+      this._observer.observe(selectorShadow, { childList: true, subtree: true });
+    }
+  }
+
+  async _ensureInnerCard() {
+    if (this._creating || this._innerCard || !this._hass || !this.shadowRoot) {
+      return;
+    }
+
+    this._creating = true;
+    try {
+      const helpers = await this._hass.loadCardHelpers();
+      this._innerCard = await helpers.createCardElement({
+        type: "energy-date-selection",
+        ...this._config,
       });
-      group.appendChild(button);
-    };
-
-    addButton("Today", "today");
-    addButton("Week", "this_week");
-    addButton("Month", "this_month");
-
-    overflow.insertBefore(group, overflow.firstChild);
+      this._innerCard.hass = this._hass;
+      const container = this.shadowRoot.querySelector(".container");
+      if (container) {
+        container.replaceChildren(this._innerCard);
+      }
+      this._scheduleEnhance();
+    } catch (err) {
+      console.error("[my-energy] date selection init failed", err);
+      const container = this.shadowRoot.querySelector(".container");
+      if (container) {
+        container.innerHTML =
+          '<div style="padding:12px;color:var(--error-color);">Date selector failed to load</div>';
+      }
+    } finally {
+      this._creating = false;
+    }
   }
 
-  shadow.querySelectorAll("ha-button").forEach((button) => {
-    if (button.textContent?.trim() === nowLabel) {
-      button.remove();
+  _renderShell() {
+    if (!this.shadowRoot) {
+      return;
     }
-  });
-
-  shadow.querySelectorAll("ha-dropdown-item").forEach((item) => {
-    if (item.textContent?.trim() === nowLabel) {
-      item.remove();
-    }
-  });
-
-  if (!shadow.querySelector("style[data-my-energy-ranges]")) {
-    const style = document.createElement("style");
-    style.dataset.myEnergyRanges = "1";
-    style.textContent = `
-      .my-energy-range-buttons {
-        display: inline-flex;
-        gap: 8px;
-        margin-right: 8px;
-      }
-      .my-energy-range-buttons ha-button {
-        --ha-button-theme-color: currentColor;
-      }
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host {
+          display: block;
+          height: 100%;
+        }
+        .container {
+          height: 100%;
+        }
+      </style>
+      <div class="container"></div>
     `;
-    shadow.appendChild(style);
   }
-};
-
-const initPeriodSelectorEnhancer = () => {
-  const enhanceAll = () => {
-    document
-      .querySelectorAll("hui-energy-period-selector")
-      .forEach((selector) => enhancePeriodSelector(selector));
-  };
-
-  const start = () => {
-    enhanceAll();
-    setInterval(enhanceAll, 800);
-    const observer = new MutationObserver(() => enhanceAll());
-    observer.observe(document.body, { childList: true, subtree: true });
-  };
-
-  if (document.readyState === "loading") {
-    window.addEventListener("DOMContentLoaded", start, { once: true });
-  } else {
-    start();
-  }
-};
-
-initPeriodSelectorEnhancer();
+}
 
 class MyEnergyConsumptionSummaryCard extends HTMLElement {
   setConfig(config) {
@@ -612,6 +699,7 @@ registerIfNeeded(
   "my-energy-consumption-summary-card",
   MyEnergyConsumptionSummaryCard
 );
+registerIfNeeded("my-energy-date-selection-card", MyEnergyDateSelectionCard);
 registerIfNeeded("my-energy-settings-redirect-card", MyEnergySettingsRedirectCard);
 registerIfNeeded("ll-strategy-dashboard-my-energy", MyEnergyDashboardStrategy);
 registerIfNeeded("ll-strategy-my-energy", MyEnergyDashboardStrategy);
