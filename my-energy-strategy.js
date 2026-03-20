@@ -541,10 +541,15 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
     if (!this._hass || this._loadingPrefs) {
       return;
     }
+    const now = Date.now();
+    if (this._latestPrefs && this._lastPrefsFetch && now - this._lastPrefsFetch < 300000) {
+      return;
+    }
     this._loadingPrefs = true;
     try {
       const prefs = await fetchEnergyPrefs(this._hass);
       this._latestPrefs = prefs;
+      this._lastPrefsFetch = Date.now();
       this._scheduleRender();
     } catch (_err) {
       // Ignore and keep collection prefs fallback.
@@ -1009,7 +1014,7 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
             </thead>
             <tbody>${body}</tbody>
           </table>
-          <details>
+          <details open>
             <summary>Debug summary values</summary>
             <pre>${debugText}</pre>
           </details>
@@ -1019,6 +1024,9 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
 
       const details = this.shadowRoot.querySelector("details");
       if (details) {
+        if (this._debugOpen === undefined) {
+          this._debugOpen = true;
+        }
         details.open = !!this._debugOpen;
         if (!this._boundDebugToggle) {
           this._boundDebugToggle = () => {
