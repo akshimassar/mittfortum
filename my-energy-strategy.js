@@ -465,6 +465,20 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
     return { totals, sum };
   }
 
+  _getGridImportFlows(source) {
+    if (Array.isArray(source.flow_from) && source.flow_from.length) {
+      return source.flow_from;
+    }
+    return [source];
+  }
+
+  _getGridExportFlows(source) {
+    if (Array.isArray(source.flow_to) && source.flow_to.length) {
+      return source.flow_to;
+    }
+    return [source];
+  }
+
   _computeConsumptionSingle(data) {
     let toGrid = Math.max(data.to_grid || 0, 0);
     let toBattery = Math.max(data.to_battery || 0, 0);
@@ -523,12 +537,16 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
 
     prefs.energy_sources.forEach((source) => {
       if (source.type === "grid") {
-        if (source.stat_energy_from) {
-          fromGridIds.push(source.stat_energy_from);
-        }
-        if (source.stat_energy_to) {
-          toGridIds.push(source.stat_energy_to);
-        }
+        this._getGridImportFlows(source).forEach((flow) => {
+          if (flow.stat_energy_from) {
+            fromGridIds.push(flow.stat_energy_from);
+          }
+        });
+        this._getGridExportFlows(source).forEach((flow) => {
+          if (flow.stat_energy_to) {
+            toGridIds.push(flow.stat_energy_to);
+          }
+        });
         return;
       }
       if (source.type === "solar") {
@@ -600,26 +618,36 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
 
     for (const source of prefs.energy_sources) {
       if (source.type === "grid") {
-        if (source.stat_energy_from) {
-          debug.gridFromIds.push(source.stat_energy_from);
-          fromGrid += this._sumStatistic(stats, source.stat_energy_from);
+        this._getGridImportFlows(source).forEach((flow) => {
+          if (!flow.stat_energy_from) {
+            return;
+          }
+          debug.gridFromIds.push(flow.stat_energy_from);
+          fromGrid += this._sumStatistic(stats, flow.stat_energy_from);
           const importCostStat =
-            source.stat_cost || info.cost_sensors[source.stat_energy_from];
+            flow.stat_cost || info.cost_sensors[flow.stat_energy_from];
           if (importCostStat) {
             debug.costImportIds.push(importCostStat);
           }
           importCost += this._sumStatistic(stats, importCostStat);
-        }
-        if (source.stat_energy_to) {
-          debug.gridToIds.push(source.stat_energy_to);
-          toGrid += this._sumStatistic(stats, source.stat_energy_to);
+        });
+
+        this._getGridExportFlows(source).forEach((flow) => {
+          if (!flow.stat_energy_to) {
+            return;
+          }
+          debug.gridToIds.push(flow.stat_energy_to);
+          toGrid += this._sumStatistic(stats, flow.stat_energy_to);
           const exportCompStat =
-            source.stat_compensation || info.cost_sensors[source.stat_energy_to];
+            flow.stat_compensation ||
+            flow.stat_cost ||
+            info.cost_sensors[flow.stat_energy_to];
           if (exportCompStat) {
             debug.costExportIds.push(exportCompStat);
           }
           exportCompensation += this._sumStatistic(stats, exportCompStat);
-        }
+        });
+
         continue;
       }
 
