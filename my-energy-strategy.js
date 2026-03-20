@@ -42,7 +42,7 @@ const buildSettingsView = (hass) => ({
   icon: "mdi:cog",
   cards: [
     {
-      type: "custom:my-energy-settings-redirect",
+      type: "custom:my-energy-settings-redirect-card",
     },
   ],
 });
@@ -102,7 +102,7 @@ const buildElectricityViewConfig = (prefs, collectionKey, hass) => {
   if (prefs.energy_sources.length || prefs.device_consumption.length) {
     mainCards.push({
       title: "Summary",
-      type: "custom:my-energy-consumption-summary",
+      type: "custom:my-energy-consumption-summary-card",
       collection_key: collectionKey,
       grid_options: { columns: 36 },
     });
@@ -122,12 +122,6 @@ const buildElectricityViewConfig = (prefs, collectionKey, hass) => {
   }
 
   mainCards.push({
-    type: "custom:my-energy-quick-ranges",
-    collection_key: collectionKey,
-    grid_options: { columns: 12 },
-  });
-
-  mainCards.push({
     title: localize(
       hass,
       "ui.panel.energy.cards.energy_date_selection_title",
@@ -138,7 +132,7 @@ const buildElectricityViewConfig = (prefs, collectionKey, hass) => {
     disable_compare: true,
     opening_direction: "right",
     vertical_opening_direction: "up",
-    grid_options: { columns: 12 },
+    grid_options: { columns: 36 },
   });
 
   view.sections.push({
@@ -191,100 +185,98 @@ class MyEnergyDashboardStrategy {
   }
 }
 
-class MyEnergyQuickRangesCard extends HTMLElement {
-  setConfig(config) {
-    this._config = config || {};
-    if (!this.shadowRoot) {
-      this.attachShadow({ mode: "open" });
-    }
-    this._render();
-  }
+const setEnergyDefaultPeriod = (collectionKey, range) => {
+  localStorage.setItem(`energy-default-period-_${collectionKey || "energy"}`, range);
+  window.location.reload();
+};
 
-  set hass(hass) {
-    this._hass = hass;
-    this._render();
-  }
+const enhancePeriodSelector = (selector) => {
+  const shadow = selector.shadowRoot;
+  if (!shadow) return;
 
-  getCardSize() {
-    return 1;
-  }
+  const overflow = shadow.querySelector(".date-actions .overflow");
+  if (!overflow) return;
 
-  getGridOptions() {
-    return { rows: 1, columns: 12 };
-  }
+  const hass = selector.hass;
+  const nowLabel =
+    hass?.localize?.("ui.panel.lovelace.components.energy_period_selector.now") ||
+    "Now";
 
-  _setRange(range) {
-    const collectionKey = this._config?.collection_key || DEFAULT_COLLECTION_KEY;
-    localStorage.setItem(`energy-default-period-_${collectionKey}`, range);
-    window.location.reload();
-  }
+  const existingGroup = shadow.querySelector(".my-energy-range-buttons");
+  if (!existingGroup) {
+    const group = document.createElement("div");
+    group.className = "my-energy-range-buttons";
 
-  _render() {
-    if (!this.shadowRoot || !this._hass) {
-      return;
-    }
-
-    const todayLabel =
-      this._hass.localize?.("ui.components.date-range-picker.ranges.today") ||
-      "Today";
-    const weekLabel =
-      this._hass.localize?.("ui.components.date-range-picker.ranges.this_week") ||
-      "Week";
-    const monthLabel =
-      this._hass.localize?.("ui.components.date-range-picker.ranges.this_month") ||
-      "Month";
-
-    this.shadowRoot.innerHTML = `
-      <style>
-        :host {
-          display: block;
-          height: 100%;
-        }
-        .card {
-          background: var(--ha-card-background, var(--card-background-color));
-          border-radius: var(--ha-card-border-radius, 12px);
-          border: 1px solid var(--divider-color);
-          box-sizing: border-box;
-          height: 100%;
-        }
-        .row {
-          display: flex;
-          gap: 8px;
-          padding: 12px;
-        }
-        button {
-          flex: 1;
-          border: 1px solid var(--divider-color);
-          background: var(--primary-background-color);
-          color: var(--primary-text-color);
-          border-radius: 8px;
-          padding: 8px 10px;
-          font: inherit;
-          cursor: pointer;
-        }
-        button:hover {
-          background: color-mix(in srgb, var(--primary-background-color), var(--primary-text-color) 6%);
-        }
-      </style>
-      <div class="card">
-        <div class="row">
-          <button data-range="today" type="button">${todayLabel}</button>
-          <button data-range="this_week" type="button">${weekLabel}</button>
-          <button data-range="this_month" type="button">${monthLabel}</button>
-        </div>
-      </div>
-    `;
-
-    this.shadowRoot.querySelectorAll("button").forEach((button) => {
-      button.addEventListener("click", () => {
-        const range = button.getAttribute("data-range");
-        if (range) {
-          this._setRange(range);
-        }
+    const addButton = (label, range) => {
+      const button = document.createElement("ha-button");
+      button.setAttribute("appearance", "filled");
+      button.setAttribute("size", "small");
+      button.textContent = label;
+      button.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        setEnergyDefaultPeriod(selector.collectionKey, range);
       });
-    });
+      group.appendChild(button);
+    };
+
+    addButton("Today", "today");
+    addButton("Week", "this_week");
+    addButton("Month", "this_month");
+
+    overflow.insertBefore(group, overflow.firstChild);
   }
-}
+
+  shadow.querySelectorAll("ha-button").forEach((button) => {
+    if (button.textContent?.trim() === nowLabel) {
+      button.remove();
+    }
+  });
+
+  shadow.querySelectorAll("ha-dropdown-item").forEach((item) => {
+    if (item.textContent?.trim() === nowLabel) {
+      item.remove();
+    }
+  });
+
+  if (!shadow.querySelector("style[data-my-energy-ranges]")) {
+    const style = document.createElement("style");
+    style.dataset.myEnergyRanges = "1";
+    style.textContent = `
+      .my-energy-range-buttons {
+        display: inline-flex;
+        gap: 8px;
+        margin-right: 8px;
+      }
+      .my-energy-range-buttons ha-button {
+        --ha-button-theme-color: currentColor;
+      }
+    `;
+    shadow.appendChild(style);
+  }
+};
+
+const initPeriodSelectorEnhancer = () => {
+  const enhanceAll = () => {
+    document
+      .querySelectorAll("hui-energy-period-selector")
+      .forEach((selector) => enhancePeriodSelector(selector));
+  };
+
+  const start = () => {
+    enhanceAll();
+    setInterval(enhanceAll, 800);
+    const observer = new MutationObserver(() => enhanceAll());
+    observer.observe(document.body, { childList: true, subtree: true });
+  };
+
+  if (document.readyState === "loading") {
+    window.addEventListener("DOMContentLoaded", start, { once: true });
+  } else {
+    start();
+  }
+};
+
+initPeriodSelectorEnhancer();
 
 class MyEnergyConsumptionSummaryCard extends HTMLElement {
   setConfig(config) {
@@ -418,13 +410,15 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
   }
 
   _formatEnergy(value) {
-    return `${new Intl.NumberFormat(this._hass.locale.language, {
+    const lang = this._hass?.locale?.language || "en";
+    return `${new Intl.NumberFormat(lang, {
       maximumFractionDigits: 2,
     }).format(value)} kWh`;
   }
 
   _formatCost(value) {
-    return new Intl.NumberFormat(this._hass.locale.language, {
+    const lang = this._hass?.locale?.language || "en";
+    return new Intl.NumberFormat(lang, {
       style: "currency",
       currency: this._hass.config.currency || "EUR",
       maximumFractionDigits: 2,
@@ -454,39 +448,40 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
       return;
     }
 
-    const totals = this._computeTotals(data);
-    const rows = [
-      {
-        name: "Total",
-        consumption: totals.totalConsumption,
-        cost: totals.totalCost,
-        bold: true,
-      },
-      ...totals.devices.map((device) => ({
-        name: device.name,
-        consumption: device.consumption,
-        cost: device.cost,
-      })),
-      {
-        name: "Unspecified",
-        consumption: totals.unspecifiedConsumption,
-        cost: totals.unspecifiedCost,
-      },
-    ];
+    try {
+      const totals = this._computeTotals(data);
+      const rows = [
+        {
+          name: "Total",
+          consumption: totals.totalConsumption,
+          cost: totals.totalCost,
+          bold: true,
+        },
+        ...totals.devices.map((device) => ({
+          name: device.name,
+          consumption: device.consumption,
+          cost: device.cost,
+        })),
+        {
+          name: "Unspecified",
+          consumption: totals.unspecifiedConsumption,
+          cost: totals.unspecifiedCost,
+        },
+      ];
 
-    const body = rows
-      .map(
-        (row) => `
+      const body = rows
+        .map(
+          (row) => `
           <tr class="${row.bold ? "bold" : ""}">
             <td>${row.name}</td>
             <td class="num">${this._formatEnergy(row.consumption)}</td>
             <td class="num">${this._formatCost(row.cost)}</td>
           </tr>
         `
-      )
-      .join("");
+        )
+        .join("");
 
-    this.shadowRoot.innerHTML = `
+      this.shadowRoot.innerHTML = `
       <style>
         :host {
           display: block;
@@ -542,6 +537,14 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
         </div>
       </ha-card>
     `;
+    } catch (err) {
+      console.error("[my-energy] summary render failed", err);
+      this.shadowRoot.innerHTML = `
+        <ha-card>
+          <div style="padding:12px;color:var(--error-color);">Summary failed to render</div>
+        </ha-card>
+      `;
+    }
   }
 }
 
@@ -605,8 +608,10 @@ const registerIfNeeded = (tag, klass) => {
   }
 };
 
+registerIfNeeded(
+  "my-energy-consumption-summary-card",
+  MyEnergyConsumptionSummaryCard
+);
+registerIfNeeded("my-energy-settings-redirect-card", MyEnergySettingsRedirectCard);
 registerIfNeeded("ll-strategy-dashboard-my-energy", MyEnergyDashboardStrategy);
 registerIfNeeded("ll-strategy-my-energy", MyEnergyDashboardStrategy);
-registerIfNeeded("my-energy-quick-ranges", MyEnergyQuickRangesCard);
-registerIfNeeded("my-energy-consumption-summary", MyEnergyConsumptionSummaryCard);
-registerIfNeeded("my-energy-settings-redirect", MyEnergySettingsRedirectCard);
