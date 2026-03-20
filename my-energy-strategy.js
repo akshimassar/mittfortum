@@ -134,7 +134,7 @@ const buildElectricityViewConfig = (prefs, collectionKey, hass) => {
     type: "energy-date-selection",
     collection_key: collectionKey,
     disable_compare: true,
-    opening_direction: "right",
+    opening_direction: "center",
     vertical_opening_direction: "up",
   });
 
