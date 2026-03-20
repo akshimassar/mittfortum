@@ -800,7 +800,10 @@ class MyEnergySettingsRedirectCard extends HTMLElement {
         return;
       }
 
-      const backPath = `${window.location.pathname}${window.location.search}`;
+      const currentPath = window.location.pathname;
+      const backPath = currentPath.endsWith("/settings")
+        ? `${currentPath.slice(0, -9)}/electricity`
+        : `${currentPath}${window.location.search}`;
       const targetPath =
         "/config/energy/electricity?historyBack=1&backPath=" +
         encodeURIComponent(backPath);
