@@ -1353,12 +1353,58 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         .content { padding: 16px; }
         .content.has-header { padding-top: 0; }
         .empty { color: var(--secondary-text-color); }
+        .consumption-stats {
+          margin-top: 12px;
+          border-top: 1px solid var(--divider-color);
+          padding-top: 10px;
+          font-size: var(--ha-font-size-s);
+          color: var(--primary-text-color);
+        }
+        .consumption-stats table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+        }
+        .consumption-stats th,
+        .consumption-stats td {
+          padding: 4px 0;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .consumption-stats th {
+          color: var(--secondary-text-color);
+          font-weight: 500;
+        }
+        .consumption-stats .series {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          min-width: 0;
+        }
+        .consumption-stats .dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 999px;
+          border: 1px solid currentColor;
+          flex: 0 0 auto;
+        }
+        .consumption-stats .label {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .consumption-stats th.num,
+        .consumption-stats td.num {
+          text-align: right;
+        }
       </style>
       <ha-card>
         ${this._config?.title ? `<h1 class="card-header">${this._config.title}</h1>` : ""}
         <div class="content ${this._config?.title ? "has-header" : ""}">
           <ha-chart-base id="chart"></ha-chart-base>
           <div id="empty" class="empty" style="display:none;">No data</div>
+          <div id="consumption-stats" class="consumption-stats"></div>
         </div>
       </ha-card>
     `;
@@ -1702,6 +1748,67 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       maximumFractionDigits: 1,
     }).format(amount);
     return this._temperatureUnit ? `${formatted} ${this._temperatureUnit}` : formatted;
+  }
+
+  _formatEnergyStatValue(value) {
+    const amount = typeof value === "number" ? value : Number(value || 0);
+    const lang = this._hass?.locale?.language || "en";
+    const formatted = new Intl.NumberFormat(lang, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(amount);
+    return this._energyUnit ? `${formatted} ${this._energyUnit}` : formatted;
+  }
+
+  _renderConsumptionStatsTable(consumptionSeries) {
+    const container = this.shadowRoot?.querySelector("#consumption-stats");
+    if (!container) {
+      return;
+    }
+
+    const rows = (consumptionSeries || []).map((entry) => {
+      const points = Array.isArray(entry?.data) ? entry.data : [];
+      const values = points
+        .map((p) => (Array.isArray(p) ? Number(p[1]) : NaN))
+        .filter((v) => Number.isFinite(v));
+      const min = values.length ? Math.min(...values) : 0;
+      const max = values.length ? Math.max(...values) : 0;
+      const last = values.length ? values[values.length - 1] : 0;
+      return {
+        name: entry?.name || "",
+        color: entry?.itemStyle?.borderColor || entry?.color || "var(--primary-color)",
+        min,
+        max,
+        last,
+      };
+    });
+
+    container.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Consumption</th>
+            <th class="num">Min</th>
+            <th class="num">Max</th>
+            <th class="num">Last</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (row) => `
+            <tr>
+              <td><span class="series"><span class="dot" style="color: ${row.color}; background-color: ${row.color};"></span><span class="label">${row.name}</span></span></td>
+              <td class="num">${this._formatEnergyStatValue(row.min)}</td>
+              <td class="num">${this._formatEnergyStatValue(row.max)}</td>
+              <td class="num">${this._formatEnergyStatValue(row.last)}</td>
+            </tr>
+          `
+            )
+            .join("")}
+        </tbody>
+      </table>
+    `;
   }
 
   _resolveEnergyUnit(data, candidateIds) {
@@ -2257,6 +2364,11 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     this._chart.data = series;
     this._chart.options = options;
     this._chart.requestUpdate?.();
+
+    const consumptionLegendSeries = series.filter(
+      (entry) => entry?.type === "bar" && entry?.stack === "consumption"
+    );
+    this._renderConsumptionStatsTable(consumptionLegendSeries);
   }
 }
 
