@@ -754,8 +754,8 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
     const amount = typeof value === "number" ? value : Number(value || 0);
     const lang = this._hass?.locale?.language || "en";
     const formatted = new Intl.NumberFormat(lang, {
-      minimumFractionDigits: 3,
-      maximumFractionDigits: 4,
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
     }).format(amount);
     return `${formatted} ${this._priceUnit || "EUR/kWh"}`;
   }
