@@ -1398,6 +1398,15 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         .consumption-stats td.num {
           text-align: right;
         }
+        .consumption-stats tr.toggleable {
+          cursor: pointer;
+        }
+        .consumption-stats tr.hidden {
+          color: var(--secondary-text-color);
+        }
+        .consumption-stats tr.hidden .dot {
+          background: transparent !important;
+        }
       </style>
       <ha-card>
         ${this._config?.title ? `<h1 class="card-header">${this._config.title}</h1>` : ""}
@@ -1760,7 +1769,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     return this._energyUnit ? `${formatted} ${this._energyUnit}` : formatted;
   }
 
-  _renderConsumptionStatsTable(consumptionSeries, totalByBucket) {
+  _renderConsumptionStatsTable(consumptionSeries, totalByBucket, hiddenIds) {
     const container = this.shadowRoot?.querySelector("#consumption-stats");
     if (!container) {
       return;
@@ -1775,6 +1784,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       const max = values.length ? Math.max(...values) : 0;
       const last = values.length ? values[values.length - 1] : 0;
       return {
+        id: entry?.id || "",
         name: entry?.name || "",
         color: entry?.itemStyle?.borderColor || entry?.color || "var(--primary-color)",
         min,
@@ -1787,6 +1797,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       Number.isFinite(v)
     );
     const totalRow = {
+      id: "",
       name: "Total",
       color: "var(--primary-text-color)",
       min: totalValues.length ? Math.min(...totalValues) : 0,
@@ -1809,7 +1820,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
           ${allRows
             .map(
               (row) => `
-            <tr>
+            <tr class="${row.id ? "toggleable" : ""} ${row.id && hiddenIds?.has(row.id) ? "hidden" : ""}" ${row.id ? `data-series-id="${row.id}"` : ""}>
               <td><span class="series"><span class="dot" style="color: ${row.color}; background-color: ${row.color};"></span><span class="label">${row.name}</span></span></td>
               <td class="num">${this._formatEnergyStatValue(row.min)}</td>
               <td class="num">${this._formatEnergyStatValue(row.max)}</td>
@@ -1821,6 +1832,54 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         </tbody>
       </table>
     `;
+
+    container.onclick = (ev) => {
+      const row = ev.target?.closest?.("tr[data-series-id]");
+      const seriesId = row?.getAttribute?.("data-series-id");
+      if (!seriesId) {
+        return;
+      }
+      this._toggleSeriesVisibility(seriesId);
+    };
+  }
+
+  _toggleSeriesVisibility(seriesId) {
+    if (!this._hiddenSeriesIds) {
+      this._hiddenSeriesIds = new Set();
+    }
+    if (this._hiddenSeriesIds.has(seriesId)) {
+      this._hiddenSeriesIds.delete(seriesId);
+    } else {
+      this._hiddenSeriesIds.add(seriesId);
+    }
+    this._applySeriesVisibility();
+  }
+
+  _applySeriesVisibility() {
+    if (!this._chart || !this._allSeries || !this._chartOptions) {
+      return;
+    }
+    const hidden = this._hiddenSeriesIds || new Set();
+    const visibleSeries = this._allSeries.filter((entry) => !hidden.has(entry.id));
+
+    const hasData = visibleSeries.some(
+      (entry) => Array.isArray(entry.data) && entry.data.length
+    );
+    const emptyEl = this.shadowRoot?.querySelector("#empty");
+    if (emptyEl) {
+      emptyEl.style.display = hasData ? "none" : "block";
+    }
+
+    this._chart.hass = this._hass;
+    this._chart.data = visibleSeries;
+    this._chart.options = this._chartOptions;
+    this._chart.requestUpdate?.();
+
+    this._renderConsumptionStatsTable(
+      this._consumptionLegendSeries || [],
+      this._totalConsumedByBucket || new Map(),
+      hidden
+    );
   }
 
   _resolveEnergyUnit(data, candidateIds) {
@@ -2379,21 +2438,15 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       },
     };
 
-    const hasData = series.some((entry) => Array.isArray(entry.data) && entry.data.length);
-    const emptyEl = this.shadowRoot?.querySelector("#empty");
-    if (emptyEl) {
-      emptyEl.style.display = hasData ? "none" : "block";
-    }
-
-    this._chart.hass = this._hass;
-    this._chart.data = series;
-    this._chart.options = options;
-    this._chart.requestUpdate?.();
-
     const consumptionLegendSeries = series.filter(
       (entry) => entry?.type === "bar" && entry?.stack === "consumption"
     );
-    this._renderConsumptionStatsTable(consumptionLegendSeries, totalConsumedByBucket);
+
+    this._allSeries = series;
+    this._chartOptions = options;
+    this._consumptionLegendSeries = consumptionLegendSeries;
+    this._totalConsumedByBucket = totalConsumedByBucket;
+    this._applySeriesVisibility();
   }
 }
 
