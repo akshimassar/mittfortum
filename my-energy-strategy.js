@@ -2857,6 +2857,13 @@ class MyEnergyFuturePriceCard extends HTMLElement {
     }
 
     const color = this._getPriceForecastColor();
+    const dividerColor =
+      getComputedStyle(this).getPropertyValue("--divider-color").trim() || "#9e9e9e";
+    const mutedTextColor =
+      getComputedStyle(this).getPropertyValue("--secondary-text-color").trim() ||
+      "#9e9e9e";
+    const tomorrowStart = new Date(start);
+    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
     const series = [
       {
         id: "future-price-overlay",
@@ -2874,6 +2881,20 @@ class MyEnergyFuturePriceCard extends HTMLElement {
         },
         itemStyle: {
           color,
+        },
+        markLine: {
+          symbol: ["none", "none"],
+          lineStyle: {
+            type: "dashed",
+            color: dividerColor,
+            width: 1,
+          },
+          label: {
+            show: true,
+            formatter: "Tomorrow",
+            color: mutedTextColor,
+          },
+          data: [{ xAxis: tomorrowStart.getTime() }],
         },
         data: points,
       },
