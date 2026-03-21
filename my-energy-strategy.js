@@ -1071,9 +1071,19 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
             },
           };
 
+          const legend = options?.legend
+            ? {
+                ...options.legend,
+                data: Array.isArray(detailCard._legendData)
+                  ? detailCard._legendData
+                  : options.legend.data,
+              }
+            : options?.legend;
+
           return {
             ...options,
             tooltip,
+            legend,
             yAxis: [primaryYAxis, secondaryYAxis, tertiaryYAxis],
           };
         };
