@@ -1471,7 +1471,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     });
   }
 
-  _fetchStats(statIds, start, end, period) {
+  _fetchStats(statIds, start, end, period, types = ["change"]) {
     if (!statIds.length) {
       return Promise.resolve({});
     }
@@ -1482,8 +1482,30 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       end_time: end.toISOString(),
       statistic_ids: statIds,
       period,
-      types: ["change"],
+      types,
     });
+  }
+
+  _normalizePriceSeries(series) {
+    if (!Array.isArray(series)) {
+      return [];
+    }
+    return series
+      .map((point) => {
+        const start =
+          typeof point?.start === "number"
+            ? point.start
+            : typeof point?.start === "string"
+              ? Date.parse(point.start)
+              : NaN;
+        const value = Number(point?.mean);
+        if (!Number.isFinite(start) || !Number.isFinite(value)) {
+          return null;
+        }
+        return { start, change: value };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.start - b.start);
   }
 
   _fetchStatsMetadata(statIds) {
@@ -1766,14 +1788,15 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       overlayIds.price,
       bounds.start,
       bounds.end,
-      "hour"
+      "hour",
+      ["mean"]
     );
     if (this._token !== token) {
       return;
     }
     const normalizedPrice = {};
     Object.keys(priceRaw || {}).forEach((id) => {
-      normalizedPrice[id] = this._normalizeStatsSeries(priceRaw[id]);
+      normalizedPrice[id] = this._normalizePriceSeries(priceRaw[id]);
     });
 
     const statsMetadata = data?.statsMetadata || {};
