@@ -1589,7 +1589,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
   _formatCostValue(value) {
     const amount = typeof value === "number" ? value : Number(value || 0);
     const lang = this._hass?.locale?.language || "en";
-    const unit = this._costUnit || this._hass?.config?.currency || "EUR";
+    const unit = this._costUnit || "";
     if (/^[A-Z]{3}$/.test(unit)) {
       return new Intl.NumberFormat(lang, {
         style: "currency",
@@ -1600,7 +1600,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     const formatted = new Intl.NumberFormat(lang, {
       maximumFractionDigits: 2,
     }).format(amount);
-    return `${formatted} ${unit}`;
+    return unit ? `${formatted} ${unit}` : formatted;
   }
 
   _formatPriceValue(value) {
@@ -1610,7 +1610,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       minimumFractionDigits: 1,
       maximumFractionDigits: 1,
     }).format(amount);
-    return `${formatted} ${this._priceUnit || "EUR/kWh"}`;
+    return this._priceUnit ? `${formatted} ${this._priceUnit}` : formatted;
   }
 
   _formatBucketDate(ts, lang) {
@@ -1782,8 +1782,9 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     );
     this._costUnit = firstCostId
       ? statsMetadata[firstCostId].statistics_unit_of_measurement
-      : this._costUnit || this._hass?.config?.currency || "EUR";
+      : "";
 
+    this._priceUnit = "";
     if (overlayIds.price.length) {
       try {
         const priceMeta = await this._fetchStatsMetadata(overlayIds.price);
@@ -1797,7 +1798,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
           this._priceUnit = firstPriceMeta.statistics_unit_of_measurement;
         }
       } catch (_err) {
-        // Keep fallback price unit.
+        this._priceUnit = "";
       }
     }
 
