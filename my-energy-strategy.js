@@ -3141,6 +3141,8 @@ class MyEnergyFuturePriceCard extends HTMLElement {
       },
       xAxis: {
         type: "time",
+        min: start,
+        max: end,
         axisLabel: {
           formatter: (value) => this._formatClock(Number(value)),
         },
