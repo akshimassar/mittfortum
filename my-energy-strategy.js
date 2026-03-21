@@ -2569,6 +2569,25 @@ class MyEnergyFuturePriceCard extends HTMLElement {
           display: none;
           z-index: 0;
         }
+        .now-indicator {
+          position: absolute;
+          pointer-events: none !important;
+          user-select: none;
+          display: none;
+          z-index: 4;
+          border-left: 2px solid color-mix(in srgb, var(--error-color) 80%, white);
+        }
+        .now-indicator-label {
+          position: absolute;
+          top: 4px;
+          left: 6px;
+          font-size: var(--ha-font-size-xs);
+          font-weight: 600;
+          color: color-mix(in srgb, var(--error-color) 80%, white);
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          white-space: nowrap;
+        }
         .day-shade-label {
           position: absolute;
           top: 50%;
@@ -2651,6 +2670,9 @@ class MyEnergyFuturePriceCard extends HTMLElement {
             </div>
             <div id="tomorrow-shade" class="tomorrow-shade">
               <span class="day-shade-label">Tomorrow</span>
+            </div>
+            <div id="now-indicator" class="now-indicator">
+              <span class="now-indicator-label">Now</span>
             </div>
           </div>
           <div id="empty" class="empty" style="display:none;">No data</div>
@@ -2922,7 +2944,8 @@ class MyEnergyFuturePriceCard extends HTMLElement {
 
     const todayShadeEl = this.shadowRoot?.querySelector("#today-shade");
     const tomorrowShadeEl = this.shadowRoot?.querySelector("#tomorrow-shade");
-    if (!todayShadeEl || !tomorrowShadeEl) {
+    const nowIndicatorEl = this.shadowRoot?.querySelector("#now-indicator");
+    if (!todayShadeEl || !tomorrowShadeEl || !nowIndicatorEl) {
       return;
     }
     const todayLabelEl = todayShadeEl.querySelector(".day-shade-label");
@@ -2931,6 +2954,7 @@ class MyEnergyFuturePriceCard extends HTMLElement {
     const hideShades = () => {
       todayShadeEl.style.display = "none";
       tomorrowShadeEl.style.display = "none";
+      nowIndicatorEl.style.display = "none";
     };
 
     if (!Array.isArray(this._allSeries) || !this._allSeries.length) {
@@ -2987,6 +3011,27 @@ class MyEnergyFuturePriceCard extends HTMLElement {
       tomorrowShadeEl.style.background = "rgba(250, 204, 21, 0.11)";
     } else {
       tomorrowShadeEl.style.display = "none";
+    }
+
+    const nowMs = Date.now();
+    if (
+      Number.isFinite(this._rangeStartMs) &&
+      Number.isFinite(this._rangeEndMs) &&
+      nowMs >= this._rangeStartMs &&
+      nowMs <= this._rangeEndMs
+    ) {
+      const nowX = Number(ech.convertToPixel({ xAxisIndex: 0 }, nowMs));
+      if (Number.isFinite(nowX)) {
+        const clampedNowX = Math.max(rect.x, Math.min(rect.x + rect.width, nowX));
+        nowIndicatorEl.style.display = "block";
+        nowIndicatorEl.style.left = `${clampedNowX}px`;
+        nowIndicatorEl.style.top = `${rect.y}px`;
+        nowIndicatorEl.style.height = `${rect.height}px`;
+      } else {
+        nowIndicatorEl.style.display = "none";
+      }
+    } else {
+      nowIndicatorEl.style.display = "none";
     }
   }
 
@@ -3057,8 +3102,10 @@ class MyEnergyFuturePriceCard extends HTMLElement {
     }
     const todayShadeEl = this.shadowRoot?.querySelector("#today-shade");
     const tomorrowShadeEl = this.shadowRoot?.querySelector("#tomorrow-shade");
+    const nowIndicatorEl = this.shadowRoot?.querySelector("#now-indicator");
     if (todayShadeEl) todayShadeEl.style.display = "none";
     if (tomorrowShadeEl) tomorrowShadeEl.style.display = "none";
+    if (nowIndicatorEl) nowIndicatorEl.style.display = "none";
     this._renderLegendTable([], this._hiddenSeriesIds || new Set());
   }
 
@@ -3085,6 +3132,8 @@ class MyEnergyFuturePriceCard extends HTMLElement {
     }
 
     const { start, end } = this._getFixedRange();
+    this._rangeStartMs = start.getTime();
+    this._rangeEndMs = end.getTime();
     const token = (this._token || 0) + 1;
     this._token = token;
 
