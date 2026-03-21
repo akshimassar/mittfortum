@@ -158,6 +158,9 @@ class TestFortumAPIClient:
                 "_parse_trpc_response",
                 return_value=parsed_payload,
             ),
+            patch(
+                "custom_components.mittfortum.api.client.async_add_external_statistics"
+            ) as mock_add_stats,
         ):
             result = await client.get_price_data()
 
@@ -168,6 +171,17 @@ class TestFortumAPIClient:
         called_url = mock_get.call_args.args[0]
         assert "shared.spotPrices.listPriceAreaSpotPrices" in called_url
         assert "PER_15_MIN" in called_url
+        mock_add_stats.assert_called_once()
+        assert (
+            mock_add_stats.call_args.args[1]["statistic_id"]
+            == "mittfortum:price_forecast"
+        )
+        assert len(mock_add_stats.call_args.args[2]) == 1
+        assert mock_add_stats.call_args.args[2][0]["start"].minute == 0
+        assert mock_add_stats.call_args.args[2][0]["state"] == pytest.approx(4.365)
+        assert mock_add_stats.call_args.args[2][0]["mean"] == pytest.approx(4.365)
+        assert mock_add_stats.call_args.args[2][0]["min"] == 4.23
+        assert mock_add_stats.call_args.args[2][0]["max"] == 4.50
 
     async def test_resolve_price_area_fallback(self, mock_hass, mock_auth_client):
         """Test fallback price area by region profile."""
@@ -899,8 +913,11 @@ class TestFortumAPIClient:
         ):
             cleared = await client.clear_hourly_statistics()
 
-        assert cleared == 4
+        assert cleared == 5
         recorder_instance.async_clear_statistics.assert_called_once()
+
+        statistic_ids = recorder_instance.async_clear_statistics.call_args.args[0]
+        assert "mittfortum:price_forecast" in statistic_ids
 
     async def test_hourly_statistics_sum_not_double_counted_across_repeated_runs(
         self, mock_hass, mock_auth_client

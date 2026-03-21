@@ -19,6 +19,7 @@ All while keeping hourly resolution to it:
 - **Energy Dashboard compatible**: Imported hourly consumption and cost are written as Home Assistant long-term statistics for Energy Dashboard and historical charts.
 - **Multi-meter support**: Creates separate statistics series for each metering point found in your Fortum account.
 - **Current electricity price**: Imports Fortum 15-minute spot price data and updates it in Home Assistant every 5 minutes.
+- **Price forecast statistics**: Writes hourly aggregated spot-price forecast statistics (`mean`, `min`, `max`) to `mittfortum:price_forecast` from fetched price windows. Fortum usually provides prices for current day and tomorrow, with tomorrow typically published around 15:00 local time.
 
 ## Installation
 
@@ -73,6 +74,7 @@ These appear in Home Assistant as **"Entity without state"** entities (statistic
 - `mittfortum:hourly_cost_<metering_point_no>`
 - `mittfortum:hourly_price_<metering_point_no>`
 - `mittfortum:hourly_temperature_<metering_point_no>`
+- `mittfortum:price_forecast` (hourly spot-price forecast aggregation)
 
 If `Debug entities` is enabled in integration options, two debug buttons are exposed:
 

@@ -24,6 +24,7 @@ from ..const import (
     HOURLY_DATA_RECENT_WINDOW_DAYS,
     HOURLY_DATA_REQUEST_TIMEOUT_SECONDS,
     PRICE_RESOLUTIONS,
+    get_currency_for_region,
 )
 from ..exceptions import APIError, InvalidResponseError, UnexpectedStatusCodeError
 from ..models import ConsumptionData, CustomerDetails, MeteringPoint, TimeSeries
@@ -336,7 +337,7 @@ class FortumAPIClient:
     async def clear_hourly_statistics(self) -> int:
         """Clear all MittFortum hourly statistics for discovered metering points."""
         metering_points = await self.get_metering_points()
-        statistic_ids: list[str] = []
+        statistic_ids: list[str] = [self._build_price_forecast_statistic_id()]
         for point in metering_points:
             statistic_ids.extend(
                 [
@@ -1011,6 +1012,11 @@ class FortumAPIClient:
         return f"{DOMAIN}:hourly_temperature_{suffix}"
 
     @staticmethod
+    def _build_price_forecast_statistic_id() -> str:
+        """Build stable statistic_id for spot-price forecast data."""
+        return f"{DOMAIN}:price_forecast"
+
+    @staticmethod
     def _normalize_temperature_unit(unit: str) -> str:
         """Normalize API temperature unit to Home Assistant convention."""
         normalized = unit.strip().lower()
@@ -1026,7 +1032,7 @@ class FortumAPIClient:
         """Get near real-time spot price data with future price points."""
         local_now = datetime.now(ZoneInfo(self._endpoints.profile.timezone))
         from_date = (local_now - timedelta(days=1)).date()
-        to_date = (local_now + timedelta(days=1)).date()
+        to_date = (local_now + timedelta(days=2)).date()
         price_area = self._resolve_price_area()
         last_error: APIError | None = None
 
@@ -1084,6 +1090,7 @@ class FortumAPIClient:
 
                 if price_data:
                     price_data.sort(key=lambda point: point.date_time)
+                    self._record_price_forecast_statistics(price_data)
                     return price_data
             except APIError as exc:
                 last_error = exc
@@ -1097,6 +1104,69 @@ class FortumAPIClient:
             raise APIError(f"Failed to fetch price data: {last_error}") from last_error
 
         return []
+
+    def _record_price_forecast_statistics(
+        self,
+        price_data: list[ConsumptionData],
+    ) -> None:
+        """Push spot-price data as hourly aggregated recorder statistics."""
+        hourly_values: dict[datetime, list[float]] = {}
+        for point in sorted(price_data, key=lambda item: item.date_time):
+            if point.price is None:
+                continue
+
+            start = dt_util.as_utc(point.date_time).replace(
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
+            value = float(point.price)
+            hourly_values.setdefault(start, []).append(value)
+
+        rows: list[dict[str, datetime | float]] = []
+        for start in sorted(hourly_values):
+            values = hourly_values[start]
+            mean_value = sum(values) / len(values)
+            rows.append(
+                {
+                    "start": start,
+                    "state": mean_value,
+                    "mean": mean_value,
+                    "min": min(values),
+                    "max": max(values),
+                }
+            )
+
+        if not rows:
+            return
+
+        first_unit = next(
+            (
+                item.price_unit
+                for item in price_data
+                if item.price is not None and item.price_unit
+            ),
+            None,
+        )
+        unit = (
+            first_unit or f"{get_currency_for_region(self._endpoints.profile.code)}/kWh"
+        )
+
+        metadata = cast(
+            "StatisticMetaData",
+            {
+                "statistic_id": self._build_price_forecast_statistic_id(),
+                "source": DOMAIN,
+                "name": "MittFortum Price Forecast",
+                "unit_of_measurement": unit,
+                "unit_class": None,
+                "has_mean": True,
+                "mean_type": StatisticMeanType.ARITHMETIC,
+                "has_sum": False,
+            },
+        )
+        statistic_rows = cast("list[StatisticData]", rows)
+        async_add_external_statistics(self._hass, metadata, statistic_rows)
 
     def _resolve_price_area(self) -> str:
         """Resolve price area from session payload or region fallback."""
