@@ -2555,11 +2555,15 @@ class MyEnergyFuturePriceCard extends HTMLElement {
         .chart-wrap {
           position: relative;
         }
+        .chart-wrap ha-chart-base {
+          position: relative;
+          z-index: 1;
+        }
         .tomorrow-shade {
           position: absolute;
           pointer-events: none;
           display: none;
-          z-index: 2;
+          z-index: 0;
         }
         .day-shade-label {
           position: absolute;
