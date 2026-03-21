@@ -5,6 +5,7 @@ Guidance for agents working in this `my-energy` dashboard strategy repo.
 ## Scope
 - This repo contains a Home Assistant dashboard strategy script (`my-energy-strategy.js`).
 - Prefer minimal, focused changes that keep dashboard behavior stable.
+- Home Assistant frontend source is available at `../frontend` for reference.
 
 ## Update Frequency and Loops
 - Keep updates sparse: avoid re-rendering or re-subscribing on every `hass` tick.
