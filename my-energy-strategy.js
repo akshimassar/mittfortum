@@ -1606,10 +1606,14 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     ];
 
     const deviceTotalsByTs = new Map();
+    const deviceCoverageByTs = new Map();
     const series = devicePrefs.map((device, index) => {
       const id = device.stat_consumption;
       const bucketed = this._bucketSeries(normalized[id] || [], bucketMs);
       this._mergeInto(deviceTotalsByTs, bucketed);
+      bucketed.forEach((_value, ts) => {
+        deviceCoverageByTs.set(ts, (deviceCoverageByTs.get(ts) || 0) + 1);
+      });
       const points = Array.from(bucketed.entries())
         .map(([ts, value]) => [ts, value])
         .sort((a, b) => a[0] - b[0]);
@@ -1656,9 +1660,19 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       ...deviceTotalsByTs.keys(),
     ]);
 
+    const firstDeviceBucket = Math.min(...Array.from(deviceCoverageByTs.keys()));
+    const hasDeviceCoverage = Number.isFinite(firstDeviceBucket);
+
     const untrackedPoints = Array.from(allTs)
       .sort((a, b) => a - b)
       .map((ts) => {
+        if (
+          !hasDeviceCoverage ||
+          ts < firstDeviceBucket ||
+          !deviceCoverageByTs.has(ts)
+        ) {
+          return [ts, 0];
+        }
         const usedTotal =
           Math.max(fromGrid.get(ts) || 0, 0) +
           Math.max(solar.get(ts) || 0, 0) +
