@@ -1491,6 +1491,34 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     return style.getPropertyValue("--history-unknown-color").trim() || "#9DA0A2";
   }
 
+  _formatBucketDate(ts, lang) {
+    const d = new Date(ts);
+    return d.toLocaleDateString(lang, {
+      day: "2-digit",
+      month: "short",
+    });
+  }
+
+  _formatHourRange(ts, bucketMs) {
+    const start = new Date(ts);
+    const end = new Date(ts + bucketMs);
+    const two = (value) => String(value).padStart(2, "0");
+    return `${two(start.getHours())}-${two(end.getHours())}`;
+  }
+
+  _formatBucketLabel(ts, bucketMs, rangeMs, lang) {
+    if (bucketMs >= 24 * 60 * 60 * 1000) {
+      return this._formatBucketDate(ts, lang);
+    }
+
+    const overOneDay = rangeMs > 24 * 60 * 60 * 1000;
+    const hourRange = this._formatHourRange(ts, bucketMs);
+    if (!overOneDay) {
+      return hourRange;
+    }
+    return `${this._formatBucketDate(ts, lang)} ${hourRange}`;
+  }
+
   _getGridImportFlows(source) {
     if (Array.isArray(source.flow_from) && source.flow_from.length) {
       return source.flow_from;
@@ -1701,6 +1729,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     });
 
     const lang = this._hass?.locale?.language || "en";
+    const rangeMs = bounds.end.getTime() - bounds.start.getTime();
     const intervalLabel =
       bucketMs >= 24 * 60 * 60 * 1000
         ? "1d"
@@ -1726,12 +1755,8 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       xAxis: {
         type: "time",
         axisLabel: {
-          formatter: (value) => {
-            const d = new Date(value);
-            return bucketMs >= 24 * 60 * 60 * 1000
-              ? d.toLocaleDateString(lang, { month: "short", day: "numeric" })
-              : d.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" });
-          },
+          formatter: (value) =>
+            this._formatBucketLabel(Number(value), bucketMs, rangeMs, lang),
         },
       },
       yAxis: {
@@ -1745,7 +1770,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
             return "";
           }
           const ts = Array.isArray(rows[0].value) ? rows[0].value[0] : rows[0].value;
-          const title = `${new Date(Number(ts)).toLocaleString(lang)} (${intervalLabel})`;
+          const title = `${this._formatBucketLabel(Number(ts), bucketMs, rangeMs, lang)} (${intervalLabel})`;
           const lines = rows
             .filter((row) => Array.isArray(row.value) && Number(row.value[1]) > 0)
             .map(
