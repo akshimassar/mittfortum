@@ -1677,6 +1677,14 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     return this._temperatureUnit ? `${formatted} ${this._temperatureUnit}` : formatted;
   }
 
+  _resolveEnergyUnit(data, candidateIds) {
+    const statsMetadata = data?.statsMetadata || {};
+    const found = (candidateIds || [])
+      .map((id) => statsMetadata?.[id]?.statistics_unit_of_measurement)
+      .find((unit) => typeof unit === "string" && unit.length);
+    return found || "";
+  }
+
   _formatBucketDate(ts, lang) {
     const d = new Date(ts);
     return d.toLocaleDateString(lang, {
@@ -1788,6 +1796,14 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
 
     const flowIds = this._buildEnergyFlowIds(data.prefs);
     const overlayIds = this._collectCostAndPriceIds(data);
+    this._energyUnit = this._resolveEnergyUnit(data, [
+      ...deviceIds,
+      ...flowIds.fromGrid,
+      ...flowIds.toGrid,
+      ...flowIds.solar,
+      ...flowIds.fromBattery,
+      ...flowIds.toBattery,
+    ]);
     const allIds = Array.from(
       new Set([
         ...deviceIds,
@@ -2130,7 +2146,8 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         {
           type: "value",
           axisLabel: {
-            formatter: (value) => `${value} kWh`,
+            formatter: (value) =>
+              this._energyUnit ? `${value} ${this._energyUnit}` : `${value}`,
           },
         },
         {
@@ -2183,7 +2200,9 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
                     ? this._formatPriceValue(value)
                     : row.seriesId === "adaptive-temperature-overlay"
                       ? this._formatTemperatureValue(value)
-                    : `${value.toFixed(2)} kWh`;
+                    : this._energyUnit
+                      ? `${value.toFixed(2)} ${this._energyUnit}`
+                      : `${value.toFixed(2)}`;
               return `${row.marker} ${row.seriesName}: <div style="direction:ltr; display: inline;">${text}</div>`;
             })
             .join("<br>");
