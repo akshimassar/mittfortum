@@ -674,11 +674,97 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
       .sort((a, b) => a.start - b.start);
   }
 
+  _collectDeviceStatIds(data) {
+    const devices = data?.prefs?.device_consumption || [];
+    return devices
+      .map((device) => device?.stat_consumption)
+      .filter((id) => typeof id === "string" && id.length);
+  }
+
+  _getDetailBucketMs(data, widthPx, minBucketMs = 15 * 60 * 1000) {
+    const bounds = this._getStatsTimeBounds(data);
+    if (!bounds) {
+      return 60 * 60 * 1000;
+    }
+
+    const safeWidth = Math.max(240, Math.floor(widthPx || 0));
+    const maxBuckets = Math.max(1, Math.floor(safeWidth / 12));
+    const rangeMs = Math.max(1, bounds.end - bounds.start);
+
+    const bucketOptions = [
+      15 * 60 * 1000,
+      60 * 60 * 1000,
+      3 * 60 * 60 * 1000,
+      6 * 60 * 60 * 1000,
+      12 * 60 * 60 * 1000,
+      24 * 60 * 60 * 1000,
+    ].filter((value) => value >= minBucketMs);
+
+    for (const bucketMs of bucketOptions) {
+      if (Math.ceil(rangeMs / bucketMs) <= maxBuckets) {
+        return bucketMs;
+      }
+    }
+
+    return 24 * 60 * 60 * 1000;
+  }
+
+  _bucketStart(ts, bucketMs) {
+    const d = new Date(ts);
+    d.setHours(0, 0, 0, 0);
+    const dayStart = d.getTime();
+    if (bucketMs >= 24 * 60 * 60 * 1000) {
+      return dayStart;
+    }
+    const offset = ts - dayStart;
+    return dayStart + Math.floor(offset / bucketMs) * bucketMs;
+  }
+
+  _rebucketBarSeriesData(points, bucketMs) {
+    if (!Array.isArray(points) || !points.length) {
+      return points || [];
+    }
+
+    const totals = new Map();
+    points.forEach((point) => {
+      if (!Array.isArray(point)) {
+        return;
+      }
+      const ts = Number(point[0]);
+      const value = Number(point[1]);
+      if (!Number.isFinite(ts) || !Number.isFinite(value)) {
+        return;
+      }
+      const bucketStart = this._bucketStart(ts, bucketMs);
+      totals.set(bucketStart, (totals.get(bucketStart) || 0) + value);
+    });
+
+    return Array.from(totals.entries())
+      .map(([start, value]) => [start, value])
+      .sort((a, b) => a[0] - b[0]);
+  }
+
+  _applyConsumptionBucketToChartData(detailCard, bucketMs) {
+    if (!Array.isArray(detailCard?._chartData) || !bucketMs) {
+      return;
+    }
+
+    detailCard._chartData = detailCard._chartData.map((series) => {
+      if (series?.type !== "bar" || series?.id === "compare-placeholder") {
+        return series;
+      }
+      return {
+        ...series,
+        data: this._rebucketBarSeriesData(series.data, bucketMs),
+      };
+    });
+  }
+
   _collectDetailStatIds(data) {
     return Object.keys(data?.stats || {}).filter(Boolean);
   }
 
-  _ensureExternalDetailStats(data, onReady) {
+  _ensureExternalDetailStats(data, bucketMs, onReady) {
     if (!this._hass || !data) {
       return;
     }
@@ -693,8 +779,11 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
       return;
     }
 
+    const wantSubHour = bucketMs <= 15 * 60 * 1000;
+    const period = wantSubHour ? "5minute" : "hour";
+
     const sortedIds = [...new Set(statIds)].sort();
-    const rangeKey = `${bounds.start}:${bounds.end}:${sortedIds.join("|")}`;
+    const rangeKey = `${bounds.start}:${bounds.end}:${period}:${sortedIds.join("|")}`;
 
     if (this._externalDetailRangeKey !== rangeKey) {
       this._externalDetailRangeKey = rangeKey;
@@ -721,7 +810,7 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
         start_time: new Date(bounds.start).toISOString(),
         end_time: new Date(bounds.end).toISOString(),
         statistic_ids: missingIds,
-        period: "hour",
+        period,
         types: ["change", "sum", "state", "mean", "min", "max", "last_reset"],
       })
       .then((result) => {
@@ -732,10 +821,49 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
         missingIds.forEach((id) => {
           next[id] = this._normalizeExternalStats(result?.[id]);
         });
-        this._externalDetailStats = next;
-        if (typeof onReady === "function") {
-          onReady();
+
+        const deviceIds = this._collectDeviceStatIds(data);
+        const missingDeviceIds =
+          period === "5minute"
+            ? deviceIds.filter((id) => !next[id] || !next[id].length)
+            : [];
+
+        const finalize = () => {
+          this._externalDetailHasSubHour =
+            period !== "5minute" || missingDeviceIds.length === 0;
+          this._externalDetailStats = next;
+          if (typeof onReady === "function") {
+            onReady();
+          }
+        };
+
+        if (!missingDeviceIds.length) {
+          finalize();
+          return;
         }
+
+        this._hass
+          .callWS({
+            type: "recorder/statistics_during_period",
+            start_time: new Date(bounds.start).toISOString(),
+            end_time: new Date(bounds.end).toISOString(),
+            statistic_ids: missingDeviceIds,
+            period: "hour",
+            types: ["change", "sum", "state", "mean", "min", "max", "last_reset"],
+          })
+          .then((fallbackResult) => {
+            if (this._externalDetailRangeKey !== rangeKey) {
+              return;
+            }
+            missingDeviceIds.forEach((id) => {
+              next[id] = this._normalizeExternalStats(fallbackResult?.[id]);
+            });
+            finalize();
+          })
+          .catch((fallbackErr) => {
+            console.warn("[my-energy] detail fallback statistics fetch failed", fallbackErr);
+            finalize();
+          });
       })
       .catch((err) => {
         console.warn("[my-energy] detail statistics fetch failed", err);
@@ -745,23 +873,34 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
       });
   }
 
-  _withHourlyDetailStats(data, onReady) {
+  _withAdaptiveDetailStats(data, widthPx, onReady) {
     if (!data) {
       return data;
     }
 
-    this._ensureExternalDetailStats(data, onReady);
+    const initialBucketMs = this._getDetailBucketMs(data, widthPx, 15 * 60 * 1000);
+    this._detailBucketMs = initialBucketMs;
+
+    this._ensureExternalDetailStats(data, initialBucketMs, onReady);
 
     if (!this._externalDetailStats || !Object.keys(this._externalDetailStats).length) {
       return data;
     }
 
+    if (initialBucketMs <= 15 * 60 * 1000 && this._externalDetailHasSubHour === false) {
+      this._detailBucketMs = this._getDetailBucketMs(data, widthPx, 60 * 60 * 1000);
+    }
+
+    const mergedStats = { ...(data.stats || {}) };
+    Object.entries(this._externalDetailStats).forEach(([statId, series]) => {
+      if (Array.isArray(series) && series.length) {
+        mergedStats[statId] = series;
+      }
+    });
+
     return {
       ...data,
-      stats: {
-        ...(data.stats || {}),
-        ...this._externalDetailStats,
-      },
+      stats: mergedStats,
     };
   }
 
@@ -1229,7 +1368,8 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
       if (originalProcess) {
         detailCard._processStatistics = () => {
           const latestData = this._energyData || this._collection?.state || detailCard._data;
-          const enrichedData = this._withHourlyDetailStats(latestData, () => {
+          const widthPx = detailCard.clientWidth || detailCard.offsetWidth || 0;
+          const enrichedData = this._withAdaptiveDetailStats(latestData, widthPx, () => {
             if (typeof detailCard._processStatistics === "function") {
               detailCard._processStatistics();
             }
@@ -1240,6 +1380,11 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
             detailCard._data = enrichedData;
           }
           originalProcess();
+
+          if (this._detailBucketMs) {
+            this._applyConsumptionBucketToChartData(detailCard, this._detailBucketMs);
+          }
+
           detailCard._data = originalData;
 
           if (enrichedData) {
