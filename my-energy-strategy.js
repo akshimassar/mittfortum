@@ -1646,6 +1646,23 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     return unit ? `${formatted} ${unit}` : formatted;
   }
 
+  _formatCostAxisValue(value) {
+    const amount = typeof value === "number" ? value : Number(value || 0);
+    const lang = this._hass?.locale?.language || "en";
+    const unit = this._costUnit || "";
+    if (/^[A-Z]{3}$/.test(unit)) {
+      return new Intl.NumberFormat(lang, {
+        style: "currency",
+        currency: unit,
+        maximumFractionDigits: 0,
+      }).format(amount);
+    }
+    const formatted = new Intl.NumberFormat(lang, {
+      maximumFractionDigits: 0,
+    }).format(amount);
+    return unit ? `${formatted} ${unit}` : formatted;
+  }
+
   _formatPriceValue(value) {
     const amount = typeof value === "number" ? value : Number(value || 0);
     const lang = this._hass?.locale?.language || "en";
@@ -1660,11 +1677,21 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     const amount = typeof value === "number" ? value : Number(value || 0);
     const lang = this._hass?.locale?.language || "en";
     const formatted = new Intl.NumberFormat(lang, {
-      minimumFractionDigits: 1,
-      maximumFractionDigits: 1,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
     }).format(amount);
     const unit = (this._priceUnit || "").split("/")[0].trim();
     return unit ? `${formatted} ${unit}` : formatted;
+  }
+
+  _formatTemperatureAxisValue(value) {
+    const amount = typeof value === "number" ? value : Number(value || 0);
+    const lang = this._hass?.locale?.language || "en";
+    const formatted = new Intl.NumberFormat(lang, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+    return this._temperatureUnit ? `${formatted} ${this._temperatureUnit}` : formatted;
   }
 
   _formatTemperatureValue(value) {
@@ -2155,7 +2182,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
           position: "right",
           splitLine: { show: false },
           axisLabel: {
-            formatter: (value) => this._formatCostValue(value),
+            formatter: (value) => this._formatCostAxisValue(value),
           },
         },
         {
@@ -2173,7 +2200,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
           offset: 112,
           splitLine: { show: false },
           axisLabel: {
-            formatter: (value) => this._formatTemperatureValue(value),
+            formatter: (value) => this._formatTemperatureAxisValue(value),
           },
         },
       ],
