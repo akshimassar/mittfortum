@@ -1457,6 +1457,14 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     return totals;
   }
 
+  _accumulateSeriesAverage(series, bucketMs, sums, counts) {
+    (series || []).forEach((point) => {
+      const ts = this._bucketStart(point.start, bucketMs);
+      sums.set(ts, (sums.get(ts) || 0) + point.change);
+      counts.set(ts, (counts.get(ts) || 0) + 1);
+    });
+  }
+
   _mergeInto(target, source) {
     source.forEach((value, key) => {
       target.set(key, (target.get(key) || 0) + value);
@@ -1478,6 +1486,28 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     });
   }
 
+  _fetchStatsMetadata(statIds) {
+    const uniqueIds = Array.from(new Set((statIds || []).filter(Boolean)));
+    if (!uniqueIds.length) {
+      return Promise.resolve({});
+    }
+
+    return this._hass
+      .callWS({
+        type: "recorder/get_statistics_metadata",
+        statistic_ids: uniqueIds,
+      })
+      .then((items) => {
+        const meta = {};
+        (items || []).forEach((item) => {
+          if (item?.statistic_id) {
+            meta[item.statistic_id] = item;
+          }
+        });
+        return meta;
+      });
+  }
+
   _getGraphColorByIndex(index) {
     const style = getComputedStyle(this);
     const color =
@@ -1489,6 +1519,98 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
   _getUntrackedColor() {
     const style = getComputedStyle(this);
     return style.getPropertyValue("--history-unknown-color").trim() || "#9DA0A2";
+  }
+
+  _getCostColor() {
+    const style = getComputedStyle(this);
+    return style.getPropertyValue("--warning-color").trim() || "#f59f00";
+  }
+
+  _getPriceColor() {
+    const style = getComputedStyle(this);
+    return style.getPropertyValue("--info-color").trim() || "#2f7ed8";
+  }
+
+  _toFortumPriceStatId(consumptionStatId) {
+    if (
+      typeof consumptionStatId !== "string" ||
+      !consumptionStatId.startsWith("mittfortum:hourly_consumption_")
+    ) {
+      return null;
+    }
+    return consumptionStatId.replace("hourly_consumption_", "hourly_price_");
+  }
+
+  _collectCostAndPriceIds(data) {
+    const prefs = data?.prefs || EMPTY_PREFS;
+    const info = data?.info || { cost_sensors: {} };
+    const importCost = [];
+    const exportCompensation = [];
+    const price = [];
+
+    (prefs.energy_sources || []).forEach((source) => {
+      if (source.type !== "grid") {
+        return;
+      }
+
+      this._getGridImportFlows(source).forEach((flow) => {
+        if (flow.stat_energy_from) {
+          const costId = flow.stat_cost || info.cost_sensors[flow.stat_energy_from];
+          if (costId) {
+            importCost.push(costId);
+          }
+          const priceId = this._toFortumPriceStatId(flow.stat_energy_from);
+          if (priceId) {
+            price.push(priceId);
+          }
+        }
+      });
+
+      this._getGridExportFlows(source).forEach((flow) => {
+        if (flow.stat_energy_to) {
+          const compensationId =
+            flow.stat_compensation ||
+            flow.stat_cost ||
+            info.cost_sensors[flow.stat_energy_to];
+          if (compensationId) {
+            exportCompensation.push(compensationId);
+          }
+        }
+      });
+    });
+
+    return {
+      importCost: Array.from(new Set(importCost)),
+      exportCompensation: Array.from(new Set(exportCompensation)),
+      price: Array.from(new Set(price)),
+    };
+  }
+
+  _formatCostValue(value) {
+    const amount = typeof value === "number" ? value : Number(value || 0);
+    const lang = this._hass?.locale?.language || "en";
+    const unit = this._costUnit || this._hass?.config?.currency || "EUR";
+    if (/^[A-Z]{3}$/.test(unit)) {
+      return new Intl.NumberFormat(lang, {
+        style: "currency",
+        currency: unit,
+        maximumFractionDigits: 2,
+      }).format(amount);
+    }
+    const formatted = new Intl.NumberFormat(lang, {
+      maximumFractionDigits: 2,
+    }).format(amount);
+    return `${formatted} ${unit}`;
+  }
+
+  _formatPriceValue(value) {
+    const amount = typeof value === "number" ? value : Number(value || 0);
+    const lang = this._hass?.locale?.language || "en";
+    const formatted = new Intl.NumberFormat(lang, {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    }).format(amount);
+    return `${formatted} ${this._priceUnit || "EUR/kWh"}`;
   }
 
   _formatBucketDate(ts, lang) {
@@ -1601,6 +1723,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     let period = bucketMs <= 15 * 60 * 1000 ? "5minute" : "hour";
 
     const flowIds = this._buildEnergyFlowIds(data.prefs);
+    const overlayIds = this._collectCostAndPriceIds(data);
     const allIds = Array.from(
       new Set([
         ...deviceIds,
@@ -1609,6 +1732,8 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         ...flowIds.solar,
         ...flowIds.fromBattery,
         ...flowIds.toBattery,
+        ...overlayIds.importCost,
+        ...overlayIds.exportCompensation,
       ])
     );
 
@@ -1636,6 +1761,45 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     Object.keys(raw || {}).forEach((id) => {
       normalized[id] = this._normalizeStatsSeries(raw[id]);
     });
+
+    const priceRaw = await this._fetchStats(
+      overlayIds.price,
+      bounds.start,
+      bounds.end,
+      "hour"
+    );
+    if (this._token !== token) {
+      return;
+    }
+    const normalizedPrice = {};
+    Object.keys(priceRaw || {}).forEach((id) => {
+      normalizedPrice[id] = this._normalizeStatsSeries(priceRaw[id]);
+    });
+
+    const statsMetadata = data?.statsMetadata || {};
+    const firstCostId = [...overlayIds.importCost, ...overlayIds.exportCompensation].find(
+      (id) => statsMetadata?.[id]?.statistics_unit_of_measurement
+    );
+    this._costUnit = firstCostId
+      ? statsMetadata[firstCostId].statistics_unit_of_measurement
+      : this._costUnit || this._hass?.config?.currency || "EUR";
+
+    if (overlayIds.price.length) {
+      try {
+        const priceMeta = await this._fetchStatsMetadata(overlayIds.price);
+        if (this._token !== token) {
+          return;
+        }
+        const firstPriceMeta = overlayIds.price
+          .map((id) => priceMeta[id])
+          .find((item) => item?.statistics_unit_of_measurement);
+        if (firstPriceMeta?.statistics_unit_of_measurement) {
+          this._priceUnit = firstPriceMeta.statistics_unit_of_measurement;
+        }
+      } catch (_err) {
+        // Keep fallback price unit.
+      }
+    }
 
     const deviceTotalsByTs = new Map();
     const series = devicePrefs.map((device, index) => {
@@ -1728,6 +1892,80 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       data: untrackedPoints,
     });
 
+    const costMap = new Map();
+    overlayIds.importCost.forEach((id) => {
+      this._mergeInto(costMap, this._bucketSeries(normalized[id] || [], bucketMs));
+    });
+    overlayIds.exportCompensation.forEach((id) => {
+      const negativeMap = new Map();
+      this._bucketSeries(normalized[id] || [], bucketMs).forEach((value, ts) => {
+        negativeMap.set(ts, -value);
+      });
+      this._mergeInto(costMap, negativeMap);
+    });
+    const costPoints = Array.from(costMap.entries())
+      .map(([ts, value]) => [ts, value])
+      .sort((a, b) => a[0] - b[0]);
+
+    const priceSums = new Map();
+    const priceCounts = new Map();
+    overlayIds.price.forEach((id) => {
+      this._accumulateSeriesAverage(
+        normalizedPrice[id] || [],
+        bucketMs,
+        priceSums,
+        priceCounts
+      );
+    });
+    const pricePoints = Array.from(priceSums.entries())
+      .map(([ts, sum]) => [ts, sum / Math.max(1, priceCounts.get(ts) || 1)])
+      .sort((a, b) => a[0] - b[0]);
+
+    if (costPoints.length) {
+      const costColor = this._getCostColor();
+      series.push({
+        id: "adaptive-cost-overlay",
+        name: "Cost",
+        type: "line",
+        smooth: 0.2,
+        symbol: "none",
+        showSymbol: false,
+        yAxisIndex: 1,
+        z: 80,
+        lineStyle: {
+          width: 2,
+          color: costColor,
+        },
+        itemStyle: {
+          color: costColor,
+        },
+        data: costPoints,
+      });
+    }
+
+    if (pricePoints.length) {
+      const priceColor = this._getPriceColor();
+      series.push({
+        id: "adaptive-price-overlay",
+        name: "Price",
+        type: "line",
+        smooth: 0.05,
+        symbol: "none",
+        showSymbol: false,
+        yAxisIndex: 2,
+        z: 79,
+        lineStyle: {
+          width: 2,
+          type: "dashed",
+          color: priceColor,
+        },
+        itemStyle: {
+          color: priceColor,
+        },
+        data: pricePoints,
+      });
+    }
+
     const lang = this._hass?.locale?.language || "en";
     const rangeMs = bounds.end.getTime() - bounds.start.getTime();
     const intervalLabel =
@@ -1759,9 +1997,31 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
             this._formatBucketLabel(Number(value), bucketMs, rangeMs, lang),
         },
       },
-      yAxis: {
-        type: "value",
-      },
+      yAxis: [
+        {
+          type: "value",
+          axisLabel: {
+            formatter: (value) => `${value}`,
+          },
+        },
+        {
+          type: "value",
+          position: "right",
+          splitLine: { show: false },
+          axisLabel: {
+            formatter: (value) => this._formatCostValue(value),
+          },
+        },
+        {
+          type: "value",
+          position: "right",
+          offset: 56,
+          splitLine: { show: false },
+          axisLabel: {
+            formatter: (value) => this._formatPriceValue(value),
+          },
+        },
+      ],
       tooltip: {
         trigger: "axis",
         formatter: (params) => {
@@ -1772,11 +2032,20 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
           const ts = Array.isArray(rows[0].value) ? rows[0].value[0] : rows[0].value;
           const title = `${this._formatBucketLabel(Number(ts), bucketMs, rangeMs, lang)} (${intervalLabel})`;
           const lines = rows
-            .filter((row) => Array.isArray(row.value) && Number(row.value[1]) > 0)
-            .map(
+            .filter(
               (row) =>
-                `${row.marker} ${row.seriesName}: <div style="direction:ltr; display: inline;">${Number(row.value[1]).toFixed(2)} kWh</div>`
+                Array.isArray(row.value) && Math.abs(Number(row.value[1]) || 0) > 0
             )
+            .map((row) => {
+              const value = Number(row.value[1]);
+              const text =
+                row.seriesId === "adaptive-cost-overlay"
+                  ? this._formatCostValue(value)
+                  : row.seriesId === "adaptive-price-overlay"
+                    ? this._formatPriceValue(value)
+                    : `${value.toFixed(2)} kWh`;
+              return `${row.marker} ${row.seriesName}: <div style="direction:ltr; display: inline;">${text}</div>`;
+            })
             .join("<br>");
           return lines
             ? `<h4 style="text-align: center; margin: 0;">${title}</h4>${lines}`
