@@ -214,6 +214,13 @@ const buildElectricityViewConfig = (prefs, collectionKey, hass) => {
 
   if (prefs.device_consumption.length) {
     mainCards.push({
+      title: "Individual devices (adaptive)",
+      type: "custom:my-energy-devices-adaptive-graph-card",
+      collection_key: collectionKey,
+      grid_options: { columns: 36 },
+    });
+
+    mainCards.push({
       title: localize(
         hass,
         "ui.panel.energy.cards.energy_devices_detail_graph_title",
@@ -1229,21 +1236,10 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
       if (originalProcess) {
         detailCard._processStatistics = () => {
           const latestData = this._energyData || this._collection?.state || detailCard._data;
-          const enrichedData = this._withHourlyDetailStats(latestData, () => {
-            if (typeof detailCard._processStatistics === "function") {
-              detailCard._processStatistics();
-            }
-          });
-
-          const originalData = detailCard._data;
-          if (enrichedData) {
-            detailCard._data = enrichedData;
-          }
           originalProcess();
-          detailCard._data = originalData;
 
-          if (enrichedData) {
-            this._applyOverlayToDetailCard(detailCard, enrichedData);
+          if (latestData) {
+            this._applyOverlayToDetailCard(detailCard, latestData);
           }
         };
       }
@@ -1278,6 +1274,483 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
     };
 
     console.log("[my-energy] overlay debug", payload);
+  }
+}
+
+class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
+  setConfig(config) {
+    this._config = config || {};
+    if (!this.shadowRoot) {
+      this.attachShadow({ mode: "open" });
+    }
+    this._renderBase();
+    this._trySubscribe();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._trySubscribe();
+    this._ensureChart();
+    this._scheduleUpdate();
+  }
+
+  connectedCallback() {
+    this._ensureResizeObserver();
+  }
+
+  disconnectedCallback() {
+    if (this._unsubscribe) {
+      this._unsubscribe();
+      this._unsubscribe = undefined;
+    }
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+      this._resizeObserver = undefined;
+    }
+  }
+
+  getCardSize() {
+    return 3;
+  }
+
+  _getCollection() {
+    const collectionKey = this._config?.collection_key || DEFAULT_COLLECTION_KEY;
+    return this._hass?.connection?.[`_${collectionKey}`];
+  }
+
+  _trySubscribe() {
+    const collection = this._getCollection();
+    if (!collection || collection === this._collection || !collection.subscribe) {
+      return;
+    }
+    if (this._unsubscribe) {
+      this._unsubscribe();
+    }
+    this._collection = collection;
+    this._unsubscribe = collection.subscribe((data) => {
+      this._energyData = data;
+      this._scheduleUpdate();
+    });
+  }
+
+  _ensureResizeObserver() {
+    if (this._resizeObserver || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    this._resizeObserver = new ResizeObserver(() => this._scheduleUpdate());
+    this._resizeObserver.observe(this);
+  }
+
+  _renderBase() {
+    if (!this.shadowRoot) {
+      return;
+    }
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display: block; }
+        ha-card { height: 100%; }
+        .content { padding: 16px; }
+        .empty { color: var(--secondary-text-color); }
+      </style>
+      <ha-card>
+        ${this._config?.title ? `<h1 class="card-header">${this._config.title}</h1>` : ""}
+        <div class="content">
+          <ha-chart-base id="chart"></ha-chart-base>
+          <div id="empty" class="empty" style="display:none;">No data</div>
+        </div>
+      </ha-card>
+    `;
+    this._ensureChart();
+  }
+
+  _ensureChart() {
+    if (!this.shadowRoot) {
+      return;
+    }
+    this._chart = this.shadowRoot.querySelector("#chart");
+    if (this._chart && this._hass) {
+      this._chart.hass = this._hass;
+      this._chart.height = "320px";
+    }
+  }
+
+  _scheduleUpdate() {
+    if (this._updateScheduled) {
+      return;
+    }
+    this._updateScheduled = true;
+    requestAnimationFrame(() => {
+      this._updateScheduled = false;
+      this._updateChart();
+    });
+  }
+
+  _getBounds(data) {
+    const start = data?.start instanceof Date ? data.start : null;
+    const end = data?.end instanceof Date ? data.end : null;
+    if (!start || !end) {
+      return null;
+    }
+    return { start, end };
+  }
+
+  _normalizeStatsSeries(series) {
+    if (!Array.isArray(series)) {
+      return [];
+    }
+    return series
+      .map((point) => {
+        const start =
+          typeof point?.start === "number"
+            ? point.start
+            : typeof point?.start === "string"
+              ? Date.parse(point.start)
+              : NaN;
+        const change = Number(point?.change);
+        if (!Number.isFinite(start) || !Number.isFinite(change)) {
+          return null;
+        }
+        return { start, change };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.start - b.start);
+  }
+
+  _pickBucketMs(start, end, widthPx, minBucketMs) {
+    const rangeMs = Math.max(1, end.getTime() - start.getTime());
+    const maxBuckets = Math.max(1, Math.floor(Math.max(240, widthPx || 0) / 12));
+    const options = [
+      15 * 60 * 1000,
+      60 * 60 * 1000,
+      3 * 60 * 60 * 1000,
+      6 * 60 * 60 * 1000,
+      12 * 60 * 60 * 1000,
+      24 * 60 * 60 * 1000,
+    ].filter((ms) => ms >= minBucketMs);
+
+    for (const ms of options) {
+      if (Math.ceil(rangeMs / ms) <= maxBuckets) {
+        return ms;
+      }
+    }
+    return 24 * 60 * 60 * 1000;
+  }
+
+  _bucketStart(ts, bucketMs) {
+    const date = new Date(ts);
+    date.setHours(0, 0, 0, 0);
+    const dayStart = date.getTime();
+    if (bucketMs >= 24 * 60 * 60 * 1000) {
+      return dayStart;
+    }
+    return dayStart + Math.floor((ts - dayStart) / bucketMs) * bucketMs;
+  }
+
+  _bucketSeries(series, bucketMs) {
+    const totals = new Map();
+    (series || []).forEach((point) => {
+      const ts = this._bucketStart(point.start, bucketMs);
+      totals.set(ts, (totals.get(ts) || 0) + point.change);
+    });
+    return totals;
+  }
+
+  _mergeInto(target, source) {
+    source.forEach((value, key) => {
+      target.set(key, (target.get(key) || 0) + value);
+    });
+  }
+
+  _fetchStats(statIds, start, end, period) {
+    if (!statIds.length) {
+      return Promise.resolve({});
+    }
+
+    return this._hass.callWS({
+      type: "recorder/statistics_during_period",
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      statistic_ids: statIds,
+      period,
+      types: ["change"],
+    });
+  }
+
+  _getGridImportFlows(source) {
+    if (Array.isArray(source.flow_from) && source.flow_from.length) {
+      return source.flow_from;
+    }
+    return [source];
+  }
+
+  _getGridExportFlows(source) {
+    if (Array.isArray(source.flow_to) && source.flow_to.length) {
+      return source.flow_to;
+    }
+    return [source];
+  }
+
+  _buildEnergyFlowIds(prefs) {
+    const ids = {
+      fromGrid: [],
+      toGrid: [],
+      solar: [],
+      fromBattery: [],
+      toBattery: [],
+    };
+
+    (prefs?.energy_sources || []).forEach((source) => {
+      if (source.type === "grid") {
+        this._getGridImportFlows(source).forEach((flow) => {
+          if (flow.stat_energy_from) {
+            ids.fromGrid.push(flow.stat_energy_from);
+          }
+        });
+        this._getGridExportFlows(source).forEach((flow) => {
+          if (flow.stat_energy_to) {
+            ids.toGrid.push(flow.stat_energy_to);
+          }
+        });
+        return;
+      }
+      if (source.type === "solar" && source.stat_energy_from) {
+        ids.solar.push(source.stat_energy_from);
+        return;
+      }
+      if (source.type === "battery") {
+        if (source.stat_energy_from) {
+          ids.fromBattery.push(source.stat_energy_from);
+        }
+        if (source.stat_energy_to) {
+          ids.toBattery.push(source.stat_energy_to);
+        }
+      }
+    });
+
+    return ids;
+  }
+
+  async _updateChart() {
+    if (!this._hass) {
+      return;
+    }
+    this._ensureChart();
+    if (!this._chart) {
+      return;
+    }
+
+    const data = this._energyData || this._collection?.state;
+    const bounds = this._getBounds(data);
+    if (!data || !bounds || !data.prefs) {
+      return;
+    }
+
+    const devicePrefs = data.prefs.device_consumption || [];
+    const deviceIds = devicePrefs
+      .map((device) => device?.stat_consumption)
+      .filter((id) => typeof id === "string" && id.length);
+    if (!deviceIds.length) {
+      return;
+    }
+
+    const widthPx = this._chart.clientWidth || this.clientWidth || 0;
+    let bucketMs = this._pickBucketMs(bounds.start, bounds.end, widthPx, 15 * 60 * 1000);
+    let period = bucketMs <= 15 * 60 * 1000 ? "5minute" : "hour";
+
+    const flowIds = this._buildEnergyFlowIds(data.prefs);
+    const allIds = Array.from(
+      new Set([
+        ...deviceIds,
+        ...flowIds.fromGrid,
+        ...flowIds.toGrid,
+        ...flowIds.solar,
+        ...flowIds.fromBattery,
+        ...flowIds.toBattery,
+      ])
+    );
+
+    const token = (this._token || 0) + 1;
+    this._token = token;
+
+    let raw = await this._fetchStats(allIds, bounds.start, bounds.end, period);
+    if (this._token !== token) {
+      return;
+    }
+
+    const missingSubHour =
+      period === "5minute" &&
+      deviceIds.some((id) => !Array.isArray(raw?.[id]) || raw[id].length === 0);
+    if (missingSubHour) {
+      period = "hour";
+      bucketMs = this._pickBucketMs(bounds.start, bounds.end, widthPx, 60 * 60 * 1000);
+      raw = await this._fetchStats(allIds, bounds.start, bounds.end, period);
+      if (this._token !== token) {
+        return;
+      }
+    }
+
+    const normalized = {};
+    Object.keys(raw || {}).forEach((id) => {
+      normalized[id] = this._normalizeStatsSeries(raw[id]);
+    });
+
+    const palette = [
+      "#5B8FF9",
+      "#61DDAA",
+      "#65789B",
+      "#F6BD16",
+      "#7262FD",
+      "#78D3F8",
+      "#9661BC",
+      "#F6903D",
+    ];
+
+    const deviceTotalsByTs = new Map();
+    const series = devicePrefs.map((device, index) => {
+      const id = device.stat_consumption;
+      const bucketed = this._bucketSeries(normalized[id] || [], bucketMs);
+      this._mergeInto(deviceTotalsByTs, bucketed);
+      const points = Array.from(bucketed.entries())
+        .map(([ts, value]) => [ts, value])
+        .sort((a, b) => a[0] - b[0]);
+      const color = palette[index % palette.length];
+      return {
+        id: `adaptive-${id}`,
+        name: device.name || id,
+        type: "bar",
+        stack: "consumption",
+        barMaxWidth: 50,
+        color,
+        itemStyle: { borderColor: color },
+        data: points,
+      };
+    });
+
+    const fromGrid = new Map();
+    const toGrid = new Map();
+    const solar = new Map();
+    const fromBattery = new Map();
+    const toBattery = new Map();
+    flowIds.fromGrid.forEach((id) =>
+      this._mergeInto(fromGrid, this._bucketSeries(normalized[id] || [], bucketMs))
+    );
+    flowIds.toGrid.forEach((id) =>
+      this._mergeInto(toGrid, this._bucketSeries(normalized[id] || [], bucketMs))
+    );
+    flowIds.solar.forEach((id) =>
+      this._mergeInto(solar, this._bucketSeries(normalized[id] || [], bucketMs))
+    );
+    flowIds.fromBattery.forEach((id) =>
+      this._mergeInto(fromBattery, this._bucketSeries(normalized[id] || [], bucketMs))
+    );
+    flowIds.toBattery.forEach((id) =>
+      this._mergeInto(toBattery, this._bucketSeries(normalized[id] || [], bucketMs))
+    );
+
+    const allTs = new Set([
+      ...fromGrid.keys(),
+      ...toGrid.keys(),
+      ...solar.keys(),
+      ...fromBattery.keys(),
+      ...toBattery.keys(),
+      ...deviceTotalsByTs.keys(),
+    ]);
+
+    const untrackedPoints = Array.from(allTs)
+      .sort((a, b) => a - b)
+      .map((ts) => {
+        const usedTotal =
+          Math.max(fromGrid.get(ts) || 0, 0) +
+          Math.max(solar.get(ts) || 0, 0) +
+          Math.max(fromBattery.get(ts) || 0, 0) -
+          Math.max(toGrid.get(ts) || 0, 0) -
+          Math.max(toBattery.get(ts) || 0, 0);
+        const untracked = Math.max(0, usedTotal - (deviceTotalsByTs.get(ts) || 0));
+        return [ts, untracked];
+      })
+      .filter(([, value]) => value > 0);
+
+    series.push({
+      id: "adaptive-untracked",
+      name: "Untracked",
+      type: "bar",
+      stack: "consumption",
+      barMaxWidth: 50,
+      color: "#9DA0A2",
+      itemStyle: { borderColor: "#9DA0A2" },
+      data: untrackedPoints,
+    });
+
+    const lang = this._hass?.locale?.language || "en";
+    const intervalLabel =
+      bucketMs >= 24 * 60 * 60 * 1000
+        ? "1d"
+        : bucketMs >= 60 * 60 * 1000
+          ? `${Math.round(bucketMs / (60 * 60 * 1000))}h`
+          : "15m";
+
+    const options = {
+      grid: { top: 20, bottom: 0, left: 1, right: 1, containLabel: true },
+      legend: {
+        show: true,
+        type: "custom",
+        data: series.map((entry) => ({
+          id: entry.id,
+          secondaryIds: [],
+          name: entry.name,
+          itemStyle: {
+            color: entry.color,
+            borderColor: entry.itemStyle?.borderColor || entry.color,
+          },
+        })),
+      },
+      xAxis: {
+        type: "time",
+        axisLabel: {
+          formatter: (value) => {
+            const d = new Date(value);
+            return bucketMs >= 24 * 60 * 60 * 1000
+              ? d.toLocaleDateString(lang, { month: "short", day: "numeric" })
+              : d.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" });
+          },
+        },
+      },
+      yAxis: {
+        type: "value",
+      },
+      tooltip: {
+        trigger: "axis",
+        formatter: (params) => {
+          const rows = Array.isArray(params) ? params : [params];
+          if (!rows.length) {
+            return "";
+          }
+          const ts = Array.isArray(rows[0].value) ? rows[0].value[0] : rows[0].value;
+          const title = `${new Date(Number(ts)).toLocaleString(lang)} (${intervalLabel})`;
+          const lines = rows
+            .filter((row) => Array.isArray(row.value) && Number(row.value[1]) > 0)
+            .map(
+              (row) =>
+                `${row.marker} ${row.seriesName}: <div style="direction:ltr; display: inline;">${Number(row.value[1]).toFixed(2)} kWh</div>`
+            )
+            .join("<br>");
+          return lines
+            ? `<h4 style="text-align: center; margin: 0;">${title}</h4>${lines}`
+            : "";
+        },
+      },
+    };
+
+    const hasData = series.some((entry) => Array.isArray(entry.data) && entry.data.length);
+    const emptyEl = this.shadowRoot?.querySelector("#empty");
+    if (emptyEl) {
+      emptyEl.style.display = hasData ? "none" : "block";
+    }
+
+    this._chart.hass = this._hass;
+    this._chart.data = series;
+    this._chart.options = options;
+    this._chart.requestUpdate?.();
   }
 }
 
@@ -1868,6 +2341,10 @@ registerIfNeeded("my-energy-quick-ranges-card", MyEnergyQuickRangesCard);
 registerIfNeeded(
   "my-energy-devices-detail-overlay-card",
   MyEnergyDevicesDetailOverlayCard
+);
+registerIfNeeded(
+  "my-energy-devices-adaptive-graph-card",
+  MyEnergyDevicesAdaptiveGraphCard
 );
 registerIfNeeded("my-energy-settings-redirect-card", MyEnergySettingsRedirectCard);
 registerIfNeeded("ll-strategy-dashboard-my-energy", MyEnergyDashboardStrategy);
