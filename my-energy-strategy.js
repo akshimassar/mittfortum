@@ -2973,7 +2973,7 @@ class MyEnergyFuturePriceCard extends HTMLElement {
       todayShadeEl.style.top = `${rect.y}px`;
       todayShadeEl.style.width = `${todayWidth}px`;
       todayShadeEl.style.height = `${rect.height}px`;
-      todayShadeEl.style.background = "rgba(148, 163, 184, 0.10)";
+      todayShadeEl.style.background = "rgba(34, 197, 94, 0.12)";
     } else {
       todayShadeEl.style.display = "none";
     }
@@ -2984,7 +2984,7 @@ class MyEnergyFuturePriceCard extends HTMLElement {
       tomorrowShadeEl.style.top = `${rect.y}px`;
       tomorrowShadeEl.style.width = `${tomorrowWidth}px`;
       tomorrowShadeEl.style.height = `${rect.height}px`;
-      tomorrowShadeEl.style.background = "rgba(148, 163, 184, 0.18)";
+      tomorrowShadeEl.style.background = "rgba(250, 204, 21, 0.20)";
     } else {
       tomorrowShadeEl.style.display = "none";
     }
