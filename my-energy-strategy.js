@@ -2857,8 +2857,7 @@ class MyEnergyFuturePriceCard extends HTMLElement {
     }
 
     const color = this._getPriceForecastColor();
-    const shadeColor =
-      getComputedStyle(this).getPropertyValue("--info-color").trim() || "#2f7ed8";
+    const shadeColor = "#ff0000";
     const values = points.map((item) => Number(item[1])).filter((v) => Number.isFinite(v));
     const tomorrowStart = new Date(start);
     tomorrowStart.setDate(tomorrowStart.getDate() + 1);
@@ -2884,7 +2883,7 @@ class MyEnergyFuturePriceCard extends HTMLElement {
           silent: true,
           itemStyle: {
             color: shadeColor,
-            opacity: 0.08,
+            opacity: 0.22,
           },
           data: [
             [
