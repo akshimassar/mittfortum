@@ -2401,6 +2401,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         },
       ],
       tooltip: {
+        show: true,
         trigger: "axis",
         formatter: (params) => {
           const rows = Array.isArray(params) ? params : [params];
@@ -3155,6 +3156,7 @@ class MyEnergyFuturePriceCard extends HTMLElement {
         },
       ],
       tooltip: {
+        show: true,
         trigger: "axis",
         formatter: (params) => {
           const rows = Array.isArray(params) ? params : [params];
