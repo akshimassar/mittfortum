@@ -2511,6 +2511,7 @@ class MyEnergyFuturePriceCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    this._trySubscribe();
     this._ensureChart();
     this._scheduleUpdate();
   }
@@ -2524,6 +2525,10 @@ class MyEnergyFuturePriceCard extends HTMLElement {
   }
 
   disconnectedCallback() {
+    if (this._unsubscribe) {
+      this._unsubscribe();
+      this._unsubscribe = undefined;
+    }
     if (this._resizeObserver) {
       this._resizeObserver.disconnect();
       this._resizeObserver = undefined;
@@ -2635,6 +2640,26 @@ class MyEnergyFuturePriceCard extends HTMLElement {
       this._chart.hass = this._hass;
       this._chart.height = "280px";
     }
+  }
+
+  _getCollection() {
+    const collectionKey = this._config?.collection_key || DEFAULT_COLLECTION_KEY;
+    return this._hass?.connection?.[`_${collectionKey}`];
+  }
+
+  _trySubscribe() {
+    const collection = this._getCollection();
+    if (!collection || collection === this._collection || !collection.subscribe) {
+      return;
+    }
+    if (this._unsubscribe) {
+      this._unsubscribe();
+    }
+    this._collection = collection;
+    this._unsubscribe = collection.subscribe((data) => {
+      this._energyData = data;
+      this._scheduleUpdate();
+    });
   }
 
   _scheduleUpdate() {
@@ -2879,6 +2904,11 @@ class MyEnergyFuturePriceCard extends HTMLElement {
       return;
     }
 
+    if (!Array.isArray(this._allSeries) || !this._allSeries.length) {
+      shadeEl.style.display = "none";
+      return;
+    }
+
     const gridComponent = ech.getModel()?.getComponent?.("grid", 0);
     const rect = gridComponent?.coordinateSystem?.getRect?.();
     if (!rect) {
@@ -2907,6 +2937,78 @@ class MyEnergyFuturePriceCard extends HTMLElement {
     shadeEl.style.background = this._shadeColor || "rgba(255, 0, 0, 0.22)";
   }
 
+  _toPriceStatId(consumptionStatId) {
+    if (typeof consumptionStatId !== "string") {
+      return null;
+    }
+    if (!consumptionStatId.includes("hourly_consumption_")) {
+      return null;
+    }
+    return consumptionStatId.replace("hourly_consumption_", "hourly_price_");
+  }
+
+  _toPriceForecastStatId(priceStatId) {
+    if (typeof priceStatId !== "string") {
+      return null;
+    }
+    if (!priceStatId.includes("hourly_price_")) {
+      return null;
+    }
+    return priceStatId.replace(/hourly_price_.+$/, "price_forecast");
+  }
+
+  _getGridImportFlows(source) {
+    if (Array.isArray(source.flow_from) && source.flow_from.length) {
+      return source.flow_from;
+    }
+    return [source];
+  }
+
+  _deriveForecastIdsFromPrefs(data) {
+    const prefs = data?.prefs || EMPTY_PREFS;
+    const ids = [];
+    (prefs.energy_sources || []).forEach((source) => {
+      if (source.type !== "grid") {
+        return;
+      }
+      this._getGridImportFlows(source).forEach((flow) => {
+        const priceId = this._toPriceStatId(flow?.stat_energy_from);
+        const forecastId = this._toPriceForecastStatId(priceId);
+        if (forecastId) {
+          ids.push(forecastId);
+        }
+      });
+    });
+    return Array.from(new Set(ids));
+  }
+
+  _showCardError(message) {
+    const emptyEl = this.shadowRoot?.querySelector("#empty");
+    if (emptyEl) {
+      emptyEl.textContent = message;
+      emptyEl.style.display = "block";
+    }
+    this._allSeries = [];
+    this._chartOptions = {
+      legend: { show: false, type: "custom" },
+      xAxis: { type: "time" },
+      yAxis: [{ type: "value", position: "right", splitLine: { show: false } }],
+      tooltip: { show: false },
+    };
+    this._legendRows = [];
+    if (this._chart) {
+      this._chart.hass = this._hass;
+      this._chart.data = [];
+      this._chart.options = this._chartOptions;
+      this._chart.requestUpdate?.();
+    }
+    const shadeEl = this.shadowRoot?.querySelector("#tomorrow-shade");
+    if (shadeEl) {
+      shadeEl.style.display = "none";
+    }
+    this._renderLegendTable([], this._hiddenSeriesIds || new Set());
+  }
+
   async _updateChart() {
     if (!this._hass) {
       return;
@@ -2916,11 +3018,24 @@ class MyEnergyFuturePriceCard extends HTMLElement {
       return;
     }
 
+    const data = this._energyData || this._collection?.state;
+    const forecastIds = this._deriveForecastIdsFromPrefs(data);
+    if (!forecastIds.length) {
+      this._showCardError("No price forecast statistic derived from Energy settings.");
+      return;
+    }
+    if (forecastIds.length > 1) {
+      this._showCardError(
+        `Multiple price forecast statistics found: ${forecastIds.join(", ")}`
+      );
+      return;
+    }
+
     const { start, end } = this._getFixedRange();
     const token = (this._token || 0) + 1;
     this._token = token;
 
-    const statId = "mittfortum:price_forecast";
+    const statId = forecastIds[0];
     const raw = await this._fetchStats([statId], start, end, "hour", ["max"]);
     if (this._token !== token) {
       return;
