@@ -2717,6 +2717,12 @@ class MyEnergyFuturePriceCard extends HTMLElement {
     return `${this._formatDate(ts)} ${this._formatHourRange(ts)}`;
   }
 
+  _formatClock(ts) {
+    const date = new Date(ts);
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
   _formatPriceValue(value) {
     const amount = typeof value === "number" ? value : Number(value || 0);
     const lang = this._hass?.locale?.language || "en";
@@ -2882,7 +2888,7 @@ class MyEnergyFuturePriceCard extends HTMLElement {
       xAxis: {
         type: "time",
         axisLabel: {
-          formatter: (value) => this._formatBucketLabel(Number(value)),
+          formatter: (value) => this._formatClock(Number(value)),
         },
       },
       yAxis: [
