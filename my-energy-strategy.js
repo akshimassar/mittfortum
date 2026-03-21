@@ -2152,15 +2152,22 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       legend: {
         show: true,
         type: "custom",
-        data: series.map((entry) => ({
-          id: entry.id,
-          secondaryIds: [],
-          name: entry.name,
-          itemStyle: {
-            color: entry.color,
-            borderColor: entry.itemStyle?.borderColor || entry.color,
-          },
-        })),
+        data: series.map((entry) => {
+          const legendColor =
+            entry?.itemStyle?.color ||
+            entry?.lineStyle?.color ||
+            entry?.itemStyle?.borderColor ||
+            entry?.color;
+          return {
+            id: entry.id,
+            secondaryIds: [],
+            name: entry.name,
+            itemStyle: {
+              color: legendColor,
+              borderColor: legendColor,
+            },
+          };
+        }),
       },
       xAxis: {
         type: "time",
