@@ -62,6 +62,8 @@ All while keeping hourly resolution to it:
 The integration creates these regular entities:
 
 - **Price per kWh Sensor** (`sensor`): Latest spot price, refreshed by the price coordinator every 5 minutes.
+- **Tomorrow Max Price** (`sensor`): Maximum published spot price for tomorrow; unavailable until tomorrow prices are published.
+- **Tomorrow Max Price Time** (`sensor`, timestamp): Timestamp for tomorrow's maximum spot price; unavailable until tomorrow prices are published.
 - **Statistics Last Sync** (`sensor`, timestamp): Last successful statistics import time.
 
 Additionally, it imports hourly Recorder statistics for each available metering point:

@@ -9,6 +9,8 @@ from .sensors import (
     MittFortumMeteringPointSensor,
     MittFortumPriceSensor,
     MittFortumStatisticsSyncSensor,
+    MittFortumTomorrowMaxPriceSensor,
+    MittFortumTomorrowMaxPriceTimeSensor,
 )
 
 if TYPE_CHECKING:
@@ -33,6 +35,8 @@ async def async_setup_entry(
     # Create sensor entities
     entities = [
         MittFortumPriceSensor(price_coordinator, device, region),
+        MittFortumTomorrowMaxPriceSensor(price_coordinator, device, region),
+        MittFortumTomorrowMaxPriceTimeSensor(price_coordinator, device),
         MittFortumStatisticsSyncSensor(coordinator, device),
         *[
             MittFortumMeteringPointSensor(device, metering_point)
