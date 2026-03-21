@@ -1553,6 +1553,11 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     return style.getPropertyValue("--info-color").trim() || "#2f7ed8";
   }
 
+  _getTemperatureColor() {
+    const style = getComputedStyle(this);
+    return style.getPropertyValue("--error-color").trim() || "#d9480f";
+  }
+
   _toFortumPriceStatId(consumptionStatId) {
     if (
       typeof consumptionStatId !== "string" ||
@@ -1563,12 +1568,23 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     return consumptionStatId.replace("hourly_consumption_", "hourly_price_");
   }
 
+  _toFortumTemperatureStatId(consumptionStatId) {
+    if (
+      typeof consumptionStatId !== "string" ||
+      !consumptionStatId.startsWith("mittfortum:hourly_consumption_")
+    ) {
+      return null;
+    }
+    return consumptionStatId.replace("hourly_consumption_", "hourly_temperature_");
+  }
+
   _collectCostAndPriceIds(data) {
     const prefs = data?.prefs || EMPTY_PREFS;
     const info = data?.info || { cost_sensors: {} };
     const importCost = [];
     const exportCompensation = [];
     const price = [];
+    const temperature = [];
 
     (prefs.energy_sources || []).forEach((source) => {
       if (source.type !== "grid") {
@@ -1584,6 +1600,10 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
           const priceId = this._toFortumPriceStatId(flow.stat_energy_from);
           if (priceId) {
             price.push(priceId);
+          }
+          const temperatureId = this._toFortumTemperatureStatId(flow.stat_energy_from);
+          if (temperatureId) {
+            temperature.push(temperatureId);
           }
         }
       });
@@ -1605,6 +1625,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       importCost: Array.from(new Set(importCost)),
       exportCompensation: Array.from(new Set(exportCompensation)),
       price: Array.from(new Set(price)),
+      temperature: Array.from(new Set(temperature)),
     };
   }
 
@@ -1633,6 +1654,16 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       maximumFractionDigits: 1,
     }).format(amount);
     return this._priceUnit ? `${formatted} ${this._priceUnit}` : formatted;
+  }
+
+  _formatTemperatureValue(value) {
+    const amount = typeof value === "number" ? value : Number(value || 0);
+    const lang = this._hass?.locale?.language || "en";
+    const formatted = new Intl.NumberFormat(lang, {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    }).format(amount);
+    return this._temperatureUnit ? `${formatted} ${this._temperatureUnit}` : formatted;
   }
 
   _formatBucketDate(ts, lang) {
@@ -1799,6 +1830,21 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       normalizedPrice[id] = this._normalizePriceSeries(priceRaw[id]);
     });
 
+    const temperatureRaw = await this._fetchStats(
+      overlayIds.temperature,
+      bounds.start,
+      bounds.end,
+      "hour",
+      ["mean"]
+    );
+    if (this._token !== token) {
+      return;
+    }
+    const normalizedTemperature = {};
+    Object.keys(temperatureRaw || {}).forEach((id) => {
+      normalizedTemperature[id] = this._normalizePriceSeries(temperatureRaw[id]);
+    });
+
     const statsMetadata = data?.statsMetadata || {};
     const firstCostId = [...overlayIds.importCost, ...overlayIds.exportCompensation].find(
       (id) => statsMetadata?.[id]?.statistics_unit_of_measurement
@@ -1808,20 +1854,31 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       : "";
 
     this._priceUnit = "";
-    if (overlayIds.price.length) {
+    this._temperatureUnit = "";
+    if (overlayIds.price.length || overlayIds.temperature.length) {
       try {
-        const priceMeta = await this._fetchStatsMetadata(overlayIds.price);
+        const overlayMeta = await this._fetchStatsMetadata([
+          ...overlayIds.price,
+          ...overlayIds.temperature,
+        ]);
         if (this._token !== token) {
           return;
         }
         const firstPriceMeta = overlayIds.price
-          .map((id) => priceMeta[id])
+          .map((id) => overlayMeta[id])
+          .find((item) => item?.statistics_unit_of_measurement);
+        const firstTemperatureMeta = overlayIds.temperature
+          .map((id) => overlayMeta[id])
           .find((item) => item?.statistics_unit_of_measurement);
         if (firstPriceMeta?.statistics_unit_of_measurement) {
           this._priceUnit = firstPriceMeta.statistics_unit_of_measurement;
         }
+        if (firstTemperatureMeta?.statistics_unit_of_measurement) {
+          this._temperatureUnit = firstTemperatureMeta.statistics_unit_of_measurement;
+        }
       } catch (_err) {
         this._priceUnit = "";
+        this._temperatureUnit = "";
       }
     }
 
@@ -1945,6 +2002,20 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       .map(([ts, sum]) => [ts, sum / Math.max(1, priceCounts.get(ts) || 1)])
       .sort((a, b) => a[0] - b[0]);
 
+    const temperatureSums = new Map();
+    const temperatureCounts = new Map();
+    overlayIds.temperature.forEach((id) => {
+      this._accumulateSeriesAverage(
+        normalizedTemperature[id] || [],
+        bucketMs,
+        temperatureSums,
+        temperatureCounts
+      );
+    });
+    const temperaturePoints = Array.from(temperatureSums.entries())
+      .map(([ts, sum]) => [ts, sum / Math.max(1, temperatureCounts.get(ts) || 1)])
+      .sort((a, b) => a[0] - b[0]);
+
     if (costPoints.length) {
       const costColor = this._getCostColor();
       series.push({
@@ -1987,6 +2058,29 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
           color: priceColor,
         },
         data: pricePoints,
+      });
+    }
+
+    if (temperaturePoints.length) {
+      const temperatureColor = this._getTemperatureColor();
+      series.push({
+        id: "adaptive-temperature-overlay",
+        name: "Temperature",
+        type: "line",
+        smooth: 0.1,
+        symbol: "none",
+        showSymbol: false,
+        yAxisIndex: 3,
+        z: 78,
+        lineStyle: {
+          width: 2,
+          type: "dotted",
+          color: temperatureColor,
+        },
+        itemStyle: {
+          color: temperatureColor,
+        },
+        data: temperaturePoints,
       });
     }
 
@@ -2045,6 +2139,15 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
             formatter: (value) => this._formatPriceValue(value),
           },
         },
+        {
+          type: "value",
+          position: "right",
+          offset: 112,
+          splitLine: { show: false },
+          axisLabel: {
+            formatter: (value) => this._formatTemperatureValue(value),
+          },
+        },
       ],
       tooltip: {
         trigger: "axis",
@@ -2067,6 +2170,8 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
                   ? this._formatCostValue(value)
                   : row.seriesId === "adaptive-price-overlay"
                     ? this._formatPriceValue(value)
+                    : row.seriesId === "adaptive-temperature-overlay"
+                      ? this._formatTemperatureValue(value)
                     : `${value.toFixed(2)} kWh`;
               return `${row.marker} ${row.seriesName}: <div style="direction:ltr; display: inline;">${text}</div>`;
             })
