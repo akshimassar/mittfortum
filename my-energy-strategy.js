@@ -742,6 +742,9 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
         period: "hour",
       })
       .then((result) => {
+        if (this._externalPriceRangeKey !== rangeKey) {
+          return;
+        }
         const next = { ...(this._externalPriceStats || {}) };
         missingIds.forEach((id) => {
           next[id] = this._normalizeExternalPriceSeries(result?.[id]);
@@ -876,6 +879,9 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
       (!costSeriesData.length && !priceSeriesData.length) ||
       !Array.isArray(detailCard._chartData)
     ) {
+      if (!Array.isArray(detailCard._chartData)) {
+        this._scheduleOverlayApply();
+      }
       return;
     }
 
@@ -964,6 +970,8 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
         });
       }
       detailCard._legendData = legendWithoutOverlay;
+    } else {
+      this._scheduleOverlayApply();
     }
 
     if (typeof detailCard.requestUpdate === "function") {
