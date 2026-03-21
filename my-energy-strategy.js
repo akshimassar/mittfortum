@@ -2547,6 +2547,15 @@ class MyEnergyFuturePriceCard extends HTMLElement {
         .content { padding: 16px; }
         .content.has-header { padding-top: 0; }
         .empty { color: var(--secondary-text-color); }
+        .chart-wrap {
+          position: relative;
+        }
+        .tomorrow-shade {
+          position: absolute;
+          pointer-events: none;
+          display: none;
+          z-index: 2;
+        }
         .stats {
           margin-top: 12px;
           border-top: 1px solid var(--divider-color);
@@ -2605,7 +2614,10 @@ class MyEnergyFuturePriceCard extends HTMLElement {
       <ha-card>
         ${this._config?.title ? `<h1 class="card-header">${this._config.title}</h1>` : ""}
         <div class="content ${this._config?.title ? "has-header" : ""}">
-          <ha-chart-base id="chart"></ha-chart-base>
+          <div id="chart-wrap" class="chart-wrap">
+            <ha-chart-base id="chart"></ha-chart-base>
+            <div id="tomorrow-shade" class="tomorrow-shade"></div>
+          </div>
           <div id="empty" class="empty" style="display:none;">No data</div>
           <div id="stats" class="stats"></div>
         </div>
@@ -2862,39 +2874,37 @@ class MyEnergyFuturePriceCard extends HTMLElement {
       return;
     }
 
+    const shadeEl = this.shadowRoot?.querySelector("#tomorrow-shade");
+    if (!shadeEl) {
+      return;
+    }
+
     const gridComponent = ech.getModel()?.getComponent?.("grid", 0);
     const rect = gridComponent?.coordinateSystem?.getRect?.();
     if (!rect) {
+      shadeEl.style.display = "none";
       return;
     }
 
     const x = Number(ech.convertToPixel({ xAxisIndex: 0 }, this._tomorrowStartMs));
     if (!Number.isFinite(x)) {
+      shadeEl.style.display = "none";
       return;
     }
 
     const left = Math.max(rect.x, Math.min(rect.x + rect.width, x));
     const width = Math.max(0, rect.x + rect.width - left);
+    if (width <= 0 || rect.height <= 0) {
+      shadeEl.style.display = "none";
+      return;
+    }
 
-    ech.setOption({
-      graphic: [
-        {
-          id: "future-price-tomorrow-shade",
-          type: "rect",
-          silent: true,
-          z: 10,
-          shape: {
-            x: left,
-            y: rect.y,
-            width,
-            height: rect.height,
-          },
-          style: {
-            fill: this._shadeColor || "rgba(255, 0, 0, 0.22)",
-          },
-        },
-      ],
-    });
+    shadeEl.style.display = "block";
+    shadeEl.style.left = `${left}px`;
+    shadeEl.style.top = `${rect.y}px`;
+    shadeEl.style.width = `${width}px`;
+    shadeEl.style.height = `${rect.height}px`;
+    shadeEl.style.background = this._shadeColor || "rgba(255, 0, 0, 0.22)";
   }
 
   async _updateChart() {
