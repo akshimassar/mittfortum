@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.components.http import StaticPathConfig
+from homeassistant.components.lovelace.const import CONF_RESOURCE_TYPE_WS, LOVELACE_DATA
+from homeassistant.components.lovelace.resources import ResourceStorageCollection
 from homeassistant.const import (
     CONF_PASSWORD,
+    CONF_URL,
     CONF_USERNAME,
     EVENT_HOMEASSISTANT_STARTED,
 )
@@ -39,6 +44,16 @@ from .exceptions import AuthenticationError, MittFortumError
 from .models import MeteringPoint
 
 _LOGGER = logging.getLogger(__name__)
+
+_DASHBOARD_STRATEGY_FILE = "fortum-energy-strategy.js"
+_DASHBOARD_STRATEGY_URL = f"/fortum-energy/{_DASHBOARD_STRATEGY_FILE}"
+_DASHBOARD_STATIC_REGISTERED_KEY = f"{DOMAIN}_dashboard_static_registered"
+_DASHBOARD_RESOURCE_REGISTERED_KEY = f"{DOMAIN}_dashboard_resource_registered"
+
+
+def _dashboard_strategy_path() -> Path:
+    """Return absolute path to dashboard strategy file."""
+    return Path(__file__).parent / "frontend" / _DASHBOARD_STRATEGY_FILE
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -106,6 +121,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Perform all data retrieval asynchronously after HA startup completes.
         _schedule_post_setup_refreshes(hass, entry, coordinator, price_coordinator)
+        await _async_register_dashboard_strategy_static_path(hass)
+        _schedule_dashboard_strategy_resource_registration(hass)
 
         _LOGGER.debug(
             "Fortum setup finished for entry_id=%s in %.2fs",
@@ -328,3 +345,88 @@ def _schedule_post_setup_refreshes(
             unsub = None
 
     entry.async_on_unload(_unsubscribe_listener)
+
+
+async def _async_register_dashboard_strategy_static_path(hass: HomeAssistant) -> None:
+    """Register static URL for the dashboard strategy JS file."""
+    if hass.data.get(_DASHBOARD_STATIC_REGISTERED_KEY):
+        return
+
+    strategy_path = _dashboard_strategy_path()
+    if not strategy_path.is_file():
+        _LOGGER.warning("Dashboard strategy file is missing at %s", strategy_path)
+        return
+
+    if (http_component := getattr(hass, "http", None)) is None:
+        _LOGGER.debug(
+            "HTTP component unavailable; skipping strategy static registration"
+        )
+        return
+
+    http_component.async_register_static_paths(
+        [
+            StaticPathConfig(
+                _DASHBOARD_STRATEGY_URL,
+                str(strategy_path),
+                cache_headers=False,
+            )
+        ]
+    )
+    hass.data[_DASHBOARD_STATIC_REGISTERED_KEY] = True
+    _LOGGER.debug(
+        "Registered dashboard strategy static path at %s", _DASHBOARD_STRATEGY_URL
+    )
+
+
+def _schedule_dashboard_strategy_resource_registration(hass: HomeAssistant) -> None:
+    """Schedule Lovelace resource registration for dashboard strategy."""
+
+    async def _async_register_resource(_event: Any | None = None) -> None:
+        await _async_ensure_dashboard_strategy_lovelace_resource(hass)
+
+    if hass.is_running:
+        hass.async_create_task(_async_register_resource())
+        return
+
+    if hass.data.get(_DASHBOARD_RESOURCE_REGISTERED_KEY):
+        return
+
+    hass.data[_DASHBOARD_RESOURCE_REGISTERED_KEY] = True
+    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _async_register_resource)
+
+
+async def _async_ensure_dashboard_strategy_lovelace_resource(
+    hass: HomeAssistant,
+) -> None:
+    """Ensure strategy JS is present in Lovelace storage resources."""
+    lovelace_data = hass.data.get(LOVELACE_DATA)
+    if lovelace_data is None:
+        _LOGGER.debug("Lovelace not loaded; skipping automatic resource registration")
+        return
+
+    resources = lovelace_data.resources
+    if not isinstance(resources, ResourceStorageCollection):
+        _LOGGER.debug(
+            "Lovelace resources use YAML mode; cannot auto-add %s",
+            _DASHBOARD_STRATEGY_URL,
+        )
+        return
+
+    await resources.async_get_info()
+
+    if any(
+        item.get(CONF_URL) == _DASHBOARD_STRATEGY_URL
+        for item in resources.async_items()
+    ):
+        return
+
+    await resources.async_create_item(
+        {
+            CONF_URL: _DASHBOARD_STRATEGY_URL,
+            CONF_RESOURCE_TYPE_WS: "module",
+        }
+    )
+    _LOGGER.info(
+        "Added Lovelace resource for Fortum dashboard strategy at %s",
+        _DASHBOARD_STRATEGY_URL,
+    )
