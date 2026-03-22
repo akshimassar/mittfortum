@@ -1,4 +1,4 @@
-const DEFAULT_COLLECTION_KEY = "energy_my_energy_dashboard";
+const DEFAULT_COLLECTION_KEY = "energy_fortum_energy_dashboard";
 
 const EMPTY_PREFS = {
   energy_sources: [],
@@ -20,7 +20,7 @@ const fetchEnergyPrefs = async (hass) => {
   }
 };
 
-const RANGE_STORAGE_PREFIX = "my-energy-range-";
+const RANGE_STORAGE_PREFIX = "fortum-energy-range-";
 
 const _samePeriod = (startA, endA, startB, endB) => {
   const aStart = startA instanceof Date ? startA.getTime() : null;
@@ -69,7 +69,7 @@ const _storeRange = (collectionKey, start, end) => {
   );
 };
 
-const ensureMyEnergyRangePersistence = (hass, collectionKey) => {
+const ensureFortumEnergyRangePersistence = (hass, collectionKey) => {
   const collection = hass?.connection?.[`_${collectionKey}`];
   if (!collection || typeof collection.setPeriod !== "function") {
     return;
@@ -151,7 +151,7 @@ const buildSettingsView = (hass) => ({
   icon: "mdi:cog",
   cards: [
     {
-      type: "custom:my-energy-settings-redirect-card",
+      type: "custom:fortum-energy-settings-redirect-card",
     },
   ],
 });
@@ -177,7 +177,7 @@ const buildElectricityViewConfig = (prefs, collectionKey, hass) => {
   const mainCards = [];
 
   mainCards.push({
-    type: "custom:my-energy-spacer-card",
+    type: "custom:fortum-energy-spacer-card",
     grid_options: { columns: 6 },
   });
 
@@ -196,13 +196,13 @@ const buildElectricityViewConfig = (prefs, collectionKey, hass) => {
   });
 
   mainCards.push({
-    type: "custom:my-energy-quick-ranges-card",
+    type: "custom:fortum-energy-quick-ranges-card",
     collection_key: collectionKey,
     grid_options: { columns: 12 },
   });
 
   mainCards.push({
-    type: "custom:my-energy-spacer-card",
+    type: "custom:fortum-energy-spacer-card",
     grid_options: { columns: 6 },
   });
 
@@ -240,21 +240,21 @@ const buildElectricityViewConfig = (prefs, collectionKey, hass) => {
 
   if (prefs.device_consumption.length) {
     mainCards.push({
-      type: "custom:my-energy-devices-adaptive-graph-card",
+      type: "custom:fortum-energy-devices-adaptive-graph-card",
       collection_key: collectionKey,
       grid_options: { columns: 36 },
     });
 
     mainCards.push({
       title: "Price of Tomorrow",
-      type: "custom:my-energy-future-price-card",
+      type: "custom:fortum-energy-future-price-card",
       collection_key: collectionKey,
       grid_options: { columns: 36 },
     });
   }
 
   mainCards.push({
-    type: "custom:my-energy-spacer-card",
+    type: "custom:fortum-energy-spacer-card",
   });
 
   view.sections.push({
@@ -266,7 +266,7 @@ const buildElectricityViewConfig = (prefs, collectionKey, hass) => {
   return view;
 };
 
-class MyEnergyDashboardStrategy {
+class FortumEnergyDashboardStrategy {
   static async generate(config, hass) {
     try {
       const collectionKey =
@@ -293,7 +293,7 @@ class MyEnergyDashboardStrategy {
             cards: [
               {
                 type: "markdown",
-                content: `Error loading my-energy strategy:\n> ${message}`,
+                content: `Error loading fortum-energy strategy:\n> ${message}`,
               },
             ],
           },
@@ -307,9 +307,7 @@ class MyEnergyDashboardStrategy {
   }
 }
 
-class MyEnergyDashboardStrategyAlias extends MyEnergyDashboardStrategy {}
-
-class MyEnergySpacerCard extends HTMLElement {
+class FortumEnergySpacerCard extends HTMLElement {
   setConfig(_config) {}
 
   getCardSize() {
@@ -327,7 +325,7 @@ class MyEnergySpacerCard extends HTMLElement {
   }
 }
 
-class MyEnergyQuickRangesCard extends HTMLElement {
+class FortumEnergyQuickRangesCard extends HTMLElement {
   setConfig(config) {
     this._config = config || {};
     if (!this.shadowRoot) {
@@ -341,7 +339,7 @@ class MyEnergyQuickRangesCard extends HTMLElement {
       this._hass?.locale?.language !== hass?.locale?.language;
     this._hass = hass;
     const collectionKey = this._config?.collection_key || DEFAULT_COLLECTION_KEY;
-    ensureMyEnergyRangePersistence(hass, collectionKey);
+    ensureFortumEnergyRangePersistence(hass, collectionKey);
     if (!this._rendered || languageChanged) {
       this._render();
     }
@@ -466,7 +464,7 @@ class MyEnergyQuickRangesCard extends HTMLElement {
   }
 }
 
-class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
+class FortumEnergyDevicesDetailOverlayCard extends HTMLElement {
   setConfig(config) {
     this._config = config || {};
     if (!this.shadowRoot) {
@@ -754,7 +752,7 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
         }
       })
       .catch((err) => {
-        console.warn("[my-energy] detail statistics fetch failed", err);
+        console.warn("[fortum-energy] detail statistics fetch failed", err);
       })
       .finally(() => {
         missingIds.forEach((id) => this._externalDetailInflight.delete(id));
@@ -855,7 +853,7 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
         this._externalPriceMeta = next;
       })
       .catch((err) => {
-        console.warn("[my-energy] price metadata fetch failed", err);
+        console.warn("[fortum-energy] price metadata fetch failed", err);
       })
       .finally(() => {
         missingIds.forEach((id) => this._externalPriceMetaInflight.delete(id));
@@ -915,7 +913,7 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
         this._scheduleOverlayApply();
       })
       .catch((err) => {
-        console.warn("[my-energy] price statistics fetch failed", err);
+        console.warn("[fortum-energy] price statistics fetch failed", err);
       })
       .finally(() => {
         missingIds.forEach((id) => this._externalPriceInflight.delete(id));
@@ -1050,13 +1048,13 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
     detailCard._chartData = detailCard._chartData
       .filter(
         (series) =>
-          series.id !== "my-energy-cost-overlay" &&
-          series.id !== "my-energy-price-overlay"
+          series.id !== "fortum-energy-cost-overlay" &&
+          series.id !== "fortum-energy-price-overlay"
       );
 
     if (costSeriesData.length) {
       detailCard._chartData = detailCard._chartData.concat({
-        id: "my-energy-cost-overlay",
+        id: "fortum-energy-cost-overlay",
         name: "Cost",
         type: "line",
         smooth: 0.2,
@@ -1080,7 +1078,7 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
 
     if (priceSeriesData.length) {
       detailCard._chartData = detailCard._chartData.concat({
-        id: "my-energy-price-overlay",
+        id: "fortum-energy-price-overlay",
         name: "Price",
         type: "line",
         smooth: 0.05,
@@ -1103,12 +1101,12 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
     if (Array.isArray(detailCard._legendData)) {
       const legendWithoutOverlay = detailCard._legendData.filter(
         (item) =>
-          item.id !== "my-energy-cost-overlay" &&
-          item.id !== "my-energy-price-overlay"
+          item.id !== "fortum-energy-cost-overlay" &&
+          item.id !== "fortum-energy-price-overlay"
       );
       if (costSeriesData.length) {
         legendWithoutOverlay.push({
-          id: "my-energy-cost-overlay",
+          id: "fortum-energy-cost-overlay",
           secondaryIds: [],
           name: "Cost",
           itemStyle: {
@@ -1119,7 +1117,7 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
       }
       if (priceSeriesData.length) {
         legendWithoutOverlay.push({
-          id: "my-energy-price-overlay",
+          id: "fortum-energy-price-overlay",
           secondaryIds: [],
           name: "Price",
           itemStyle: {
@@ -1202,15 +1200,15 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
               rows.forEach((row) => {
                 if (
                   !row ||
-                  (row.seriesId !== "my-energy-cost-overlay" &&
-                    row.seriesId !== "my-energy-price-overlay")
+                  (row.seriesId !== "fortum-energy-cost-overlay" &&
+                    row.seriesId !== "fortum-energy-price-overlay")
                 ) {
                   return;
                 }
                 const label = row.seriesName || "Cost";
                 const y = Array.isArray(row.value) ? Number(row.value[1] || 0) : 0;
                 const valueText =
-                  row.seriesId === "my-energy-price-overlay"
+                  row.seriesId === "fortum-energy-price-overlay"
                     ? this._formatPrice(y)
                     : this._formatCost(y);
                 const replacement = `${label}: <div style="direction:ltr; display: inline;">${valueText}</div>`;
@@ -1282,11 +1280,11 @@ class MyEnergyDevicesDetailOverlayCard extends HTMLElement {
       priceMissing: debug.price?.missing || [],
     };
 
-    console.log("[my-energy] overlay debug", payload);
+    console.log("[fortum-energy] overlay debug", payload);
   }
 }
 
-class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
+class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
   setConfig(config) {
     this._config = config || {};
     if (!this.shadowRoot) {
@@ -2521,7 +2519,7 @@ class MyEnergyDevicesAdaptiveGraphCard extends HTMLElement {
   }
 }
 
-class MyEnergyFuturePriceCard extends HTMLElement {
+class FortumEnergyFuturePriceCard extends HTMLElement {
   setConfig(config) {
     this._config = config || {};
     if (!this.shadowRoot) {
@@ -3297,7 +3295,7 @@ class MyEnergyFuturePriceCard extends HTMLElement {
   }
 }
 
-class MyEnergyConsumptionSummaryCard extends HTMLElement {
+class FortumEnergyConsumptionSummaryCard extends HTMLElement {
   setConfig(config) {
     this._config = config || {};
     if (!this.shadowRoot) {
@@ -3798,7 +3796,7 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
 
       this._hasRendered = true;
     } catch (err) {
-      console.error("[my-energy] summary render failed", err);
+      console.error("[fortum-energy] summary render failed", err);
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div style="padding:12px;color:var(--error-color);">Summary failed to render</div>
@@ -3808,7 +3806,7 @@ class MyEnergyConsumptionSummaryCard extends HTMLElement {
   }
 }
 
-class MyEnergySettingsRedirectCard extends HTMLElement {
+class FortumEnergySettingsRedirectCard extends HTMLElement {
   setConfig(_config) {
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
@@ -3876,20 +3874,19 @@ const registerIfNeeded = (tag, klass) => {
 };
 
 registerIfNeeded(
-  "my-energy-consumption-summary-card",
-  MyEnergyConsumptionSummaryCard
+  "fortum-energy-consumption-summary-card",
+  FortumEnergyConsumptionSummaryCard
 );
-registerIfNeeded("my-energy-spacer-card", MyEnergySpacerCard);
-registerIfNeeded("my-energy-quick-ranges-card", MyEnergyQuickRangesCard);
+registerIfNeeded("fortum-energy-spacer-card", FortumEnergySpacerCard);
+registerIfNeeded("fortum-energy-quick-ranges-card", FortumEnergyQuickRangesCard);
 registerIfNeeded(
-  "my-energy-devices-detail-overlay-card",
-  MyEnergyDevicesDetailOverlayCard
+  "fortum-energy-devices-detail-overlay-card",
+  FortumEnergyDevicesDetailOverlayCard
 );
 registerIfNeeded(
-  "my-energy-devices-adaptive-graph-card",
-  MyEnergyDevicesAdaptiveGraphCard
+  "fortum-energy-devices-adaptive-graph-card",
+  FortumEnergyDevicesAdaptiveGraphCard
 );
-registerIfNeeded("my-energy-future-price-card", MyEnergyFuturePriceCard);
-registerIfNeeded("my-energy-settings-redirect-card", MyEnergySettingsRedirectCard);
-registerIfNeeded("ll-strategy-dashboard-my-energy", MyEnergyDashboardStrategy);
-registerIfNeeded("ll-strategy-my-energy", MyEnergyDashboardStrategyAlias);
+registerIfNeeded("fortum-energy-future-price-card", FortumEnergyFuturePriceCard);
+registerIfNeeded("fortum-energy-settings-redirect-card", FortumEnergySettingsRedirectCard);
+registerIfNeeded("ll-strategy-dashboard-fortum-energy", FortumEnergyDashboardStrategy);
