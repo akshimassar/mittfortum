@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 from datetime import datetime, timedelta
@@ -56,6 +57,7 @@ class FortumAPIClient:
         self._auth_client = auth_client
         self._endpoints = APIEndpoints.for_region(getattr(auth_client, "region", "se"))
         self._earliest_available_by_metering_point: dict[str, datetime] = {}
+        self._last_price_forecast_digest: str | None = None
 
     async def get_customer_id(self) -> str:
         """Extract customer ID from session data or ID token."""
@@ -366,6 +368,8 @@ class FortumAPIClient:
                 await done_event.wait()
         except TimeoutError as exc:
             raise APIError("Timed out while clearing statistics") from exc
+
+        self._last_price_forecast_digest = None
 
         return len(statistic_ids)
 
@@ -1034,6 +1038,12 @@ class FortumAPIClient:
         from_date = (local_now - timedelta(days=1)).date()
         to_date = (local_now + timedelta(days=2)).date()
         price_area = self._resolve_price_area()
+        _LOGGER.debug(
+            "get_price_data: area=%s from_date=%s to_date=%s",
+            price_area,
+            from_date,
+            to_date,
+        )
         last_error: APIError | None = None
 
         for resolution in PRICE_RESOLUTIONS:
@@ -1090,6 +1100,16 @@ class FortumAPIClient:
 
                 if price_data:
                     price_data.sort(key=lambda point: point.date_time)
+                    _LOGGER.debug(
+                        (
+                            "get_price_data: fetched using resolution %s: "
+                            "records=%d first=%s last=%s"
+                        ),
+                        resolution,
+                        len(price_data),
+                        price_data[0].date_time.isoformat(),
+                        price_data[-1].date_time.isoformat(),
+                    )
                     self._record_price_forecast_statistics(price_data)
                     return price_data
             except APIError as exc:
@@ -1103,6 +1123,12 @@ class FortumAPIClient:
         if last_error is not None:
             raise APIError(f"Failed to fetch price data: {last_error}") from last_error
 
+        _LOGGER.debug(
+            "get_price_data: no records area=%s from_date=%s to_date=%s",
+            price_area,
+            from_date,
+            to_date,
+        )
         return []
 
     def _record_price_forecast_statistics(
@@ -1138,6 +1164,7 @@ class FortumAPIClient:
             )
 
         if not rows:
+            _LOGGER.debug("_record_price_forecast_statistics: skip no priced rows")
             return
 
         first_unit = next(
@@ -1165,8 +1192,38 @@ class FortumAPIClient:
                 "has_sum": False,
             },
         )
+
+        def _start_iso(start: datetime | float) -> str:
+            return str(start)
+
+        digest_parts = [
+            metadata["statistic_id"],
+            metadata["unit_of_measurement"],
+            *[
+                (
+                    f"{_start_iso(row['start'])}|{row['state']:.12f}|"
+                    f"{row['mean']:.12f}|{row['min']:.12f}|{row['max']:.12f}"
+                )
+                for row in rows
+            ],
+        ]
+        digest = hashlib.sha256(";".join(digest_parts).encode("utf-8")).hexdigest()
+        if digest == self._last_price_forecast_digest:
+            return
+
         statistic_rows = cast("list[StatisticData]", rows)
         async_add_external_statistics(self._hass, metadata, statistic_rows)
+        self._last_price_forecast_digest = digest
+        _LOGGER.debug(
+            (
+                "_record_price_forecast_statistics: wrote statistic_id=%s "
+                "rows=%d first=%s last=%s"
+            ),
+            metadata["statistic_id"],
+            len(rows),
+            _start_iso(rows[0]["start"]),
+            _start_iso(rows[-1]["start"]),
+        )
 
     def _resolve_price_area(self) -> str:
         """Resolve price area from session payload or region fallback."""

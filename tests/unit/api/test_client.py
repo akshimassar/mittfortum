@@ -1,6 +1,6 @@
 """Unit tests for FortumAPIClient."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -10,6 +10,7 @@ from custom_components.mittfortum.api.client import FortumAPIClient
 from custom_components.mittfortum.const import HOURLY_DATA_REQUEST_TIMEOUT_SECONDS
 from custom_components.mittfortum.exceptions import APIError
 from custom_components.mittfortum.models import (
+    ConsumptionData,
     CostDataPoint,
     CustomerDetails,
     EnergyDataPoint,
@@ -189,6 +190,61 @@ class TestFortumAPIClient:
         mock_auth_client.session_data = {}
 
         assert client._resolve_price_area() == "SE3"
+
+    def test_record_price_forecast_statistics_skips_unchanged_payload(
+        self,
+        mock_hass,
+        mock_auth_client,
+    ) -> None:
+        """Forecast statistics write should be skipped when data digest is unchanged."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        price_data = [
+            ConsumptionData(
+                value=0.0,
+                unit="kWh",
+                date_time=datetime(2026, 3, 18, 10, 0, tzinfo=UTC),
+                cost=None,
+                price=0.25,
+                price_unit="EUR/kWh",
+            ),
+            ConsumptionData(
+                value=0.0,
+                unit="kWh",
+                date_time=datetime(2026, 3, 18, 10, 15, tzinfo=UTC),
+                cost=None,
+                price=0.35,
+                price_unit="EUR/kWh",
+            ),
+        ]
+
+        with patch(
+            "custom_components.mittfortum.api.client.async_add_external_statistics"
+        ) as mock_add_stats:
+            client._record_price_forecast_statistics(price_data)
+            client._record_price_forecast_statistics(price_data)
+
+            assert mock_add_stats.call_count == 1
+
+            updated_price_data = [
+                ConsumptionData(
+                    value=0.0,
+                    unit="kWh",
+                    date_time=datetime(2026, 3, 18, 10, 0, tzinfo=UTC),
+                    cost=None,
+                    price=0.26,
+                    price_unit="EUR/kWh",
+                ),
+                ConsumptionData(
+                    value=0.0,
+                    unit="kWh",
+                    date_time=datetime(2026, 3, 18, 10, 15, tzinfo=UTC),
+                    cost=None,
+                    price=0.35,
+                    price_unit="EUR/kWh",
+                ),
+            ]
+            client._record_price_forecast_statistics(updated_price_data)
+            assert mock_add_stats.call_count == 2
 
     async def test_get_consumption_data_passes_region_timezone(
         self, mock_hass, mock_auth_client
