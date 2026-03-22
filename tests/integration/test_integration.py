@@ -187,7 +187,7 @@ class TestMittFortumIntegration:
 
         from homeassistant.helpers import frame
 
-        from custom_components.mittfortum.schedulers import (
+        from custom_components.mittfortum.coordinators import (
             HourlyConsumptionSyncCoordinator,
         )
 

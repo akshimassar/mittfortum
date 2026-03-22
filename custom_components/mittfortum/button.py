@@ -23,8 +23,8 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+    from .coordinators import HourlyConsumptionSyncCoordinator
     from .device import MittFortumDevice
-    from .schedulers import HourlyConsumptionSyncCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 

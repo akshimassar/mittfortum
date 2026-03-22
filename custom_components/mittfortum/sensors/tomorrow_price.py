@@ -20,8 +20,8 @@ from ..entity import MittFortumEntity
 from ..models import ConsumptionData
 
 if TYPE_CHECKING:
+    from ..coordinators import SpotPriceSyncCoordinator
     from ..device import MittFortumDevice
-    from ..schedulers import SpotPriceSyncCoordinator
 
 
 class _MittFortumTomorrowPriceEntity(MittFortumEntity, SensorEntity):

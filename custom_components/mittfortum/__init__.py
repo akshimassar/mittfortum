@@ -28,13 +28,13 @@ from .const import (
     DOMAIN,
     PLATFORMS,
 )
-from .device import MittFortumDevice
-from .exceptions import AuthenticationError, MittFortumError
-from .models import MeteringPoint
-from .schedulers import (
+from .coordinators import (
     HourlyConsumptionSyncCoordinator,
     SpotPriceSyncCoordinator,
 )
+from .device import MittFortumDevice
+from .exceptions import AuthenticationError, MittFortumError
+from .models import MeteringPoint
 
 _LOGGER = logging.getLogger(__name__)
 

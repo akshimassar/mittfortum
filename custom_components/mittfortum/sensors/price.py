@@ -10,8 +10,8 @@ from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from ..const import PRICE_SENSOR_KEY, get_currency_for_region
 
 if TYPE_CHECKING:
+    from ..coordinators import SpotPriceSyncCoordinator
     from ..device import MittFortumDevice
-    from ..schedulers import SpotPriceSyncCoordinator
 
 from ..entity import MittFortumEntity
 from ..models import ConsumptionData

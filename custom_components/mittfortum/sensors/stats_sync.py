@@ -12,8 +12,8 @@ from ..entity import MittFortumEntity
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from ..coordinators import HourlyConsumptionSyncCoordinator
     from ..device import MittFortumDevice
-    from ..schedulers import HourlyConsumptionSyncCoordinator
 
 
 class MittFortumStatisticsSyncSensor(MittFortumEntity, SensorEntity):

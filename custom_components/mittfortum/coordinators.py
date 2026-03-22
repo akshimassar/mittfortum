@@ -1,4 +1,4 @@
-"""Data update schedulers for MittFortum integration."""
+"""Data update coordinators for MittFortum integration."""
 
 from __future__ import annotations
 
