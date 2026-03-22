@@ -47,6 +47,51 @@ custom_components/fortum/
 - Uses a 14-day recent window and 14-day chunks for historical catch-up.
 - Fortum API can return GraphQL errors or take over 30 seconds for larger windows (observed even around 30 days).
 
+### Token and Session Handling (`api/auth.py`, `api/client.py`, `coordinators.py`)
+
+The integration supports two authentication modes and handles them differently:
+
+- **Session-based mode** (`refresh_token == "session_based"`):
+  - Auth is maintained through Fortum session flow (cookies + session payload).
+  - There is no usable OAuth refresh-token exchange.
+  - Scheduler skips refresh exchange attempts and goes directly to re-authentication when renewal is due.
+
+- **OAuth refresh-token mode**:
+  - Uses token exchange endpoint to refresh access tokens.
+  - Scheduler attempts proactive refresh before expiry, then re-authenticates if refresh cannot recover.
+
+#### Proactive renewal scheduler (`OAuth2AuthClient`)
+
+After successful authentication, the client starts a one-shot scheduler:
+
+- Next renewal is scheduled at: `ttl - max(15s, 10% of ttl)`.
+- Scheduler behavior:
+  1. Try token refresh (when mode supports it).
+  2. On refresh failure, retry with exponential backoff (`5s`, `10s`, `20s`, ...).
+  3. Stop refresh retries when token expires, or immediately switch on refresh `401`.
+  4. Enter re-auth stage and retry authentication with exponential backoff capped at **30 minutes**.
+
+Notes:
+- Scheduler is stopped on integration unload (`async_unload_entry`) to avoid orphan background tasks.
+- Internal method names use "renewal scheduler" terminology to match behavior.
+
+#### Request handling and auth failures (`FortumAPIClient._get`)
+
+- `_get` performs a single request and propagates errors.
+- HTTP `401` is treated as authentication failure and raised as `AuthenticationError`.
+- Other API/transport errors are raised as `APIError` (or wrapped as API error).
+
+#### HA signaling boundary (`coordinators.py`)
+
+Home Assistant auth-state signaling is done in coordinators:
+
+- `AuthenticationError` -> `ConfigEntryAuthFailed` (triggers reauth flow in HA UI).
+- `APIError` and other transient failures -> `UpdateFailed`.
+
+This keeps:
+- auth/session recovery logic in auth layer,
+- HA state signaling in coordinator/update layer.
+
 ### Coordinators (`coordinators.py`)
 - Main coordinator runs statistics sync cycle.
 - Price coordinator updates near-real-time spot prices.
