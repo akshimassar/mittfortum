@@ -122,20 +122,24 @@ class FortumAPIClient:
     async def get_time_series_data(
         self,
         metering_point_nos: list[str],
-        from_date: datetime | None = None,
-        to_date: datetime | None = None,
-        resolution: str = "MONTH",
+        from_date: datetime,
+        to_date: datetime,
+        resolution: str,
         series_type: str | None = None,
         request_timeout: float | None = None,
     ) -> list[TimeSeries]:
-        """Fetch time series data using tRPC endpoint with automatic retry logic."""
-        # Default to last 3 months if no dates provided
-        if not from_date:
-            from_date = datetime.now().replace(day=1) - timedelta(days=90)
-        if not to_date:
-            to_date = datetime.now()
+        """Fetch time series data using tRPC endpoint."""
+        if from_date is None or to_date is None:
+            raise APIError("from_date and to_date are required for time series fetch")
 
-        # Try with the requested date range first
+        if not resolution:
+            raise APIError("resolution is required for time series fetch")
+
+        if from_date >= to_date:
+            raise APIError(
+                "Invalid time series range: from_date must be earlier than to_date"
+            )
+
         try:
             return await self._fetch_time_series_data(
                 metering_point_nos,
@@ -146,39 +150,17 @@ class FortumAPIClient:
                 request_timeout=request_timeout,
             )
         except APIError as exc:
-            if "Server error" in str(exc) or "reducing date range" in str(exc):
-                _LOGGER.warning(
-                    "Server error with requested date range, trying with last 30 days"
-                )
-                # Fallback to last 30 days
-                fallback_from = datetime.now() - timedelta(days=30)
-                fallback_to = datetime.now()
-                try:
-                    return await self._fetch_time_series_data(
-                        metering_point_nos,
-                        fallback_from,
-                        fallback_to,
-                        resolution,
-                        series_type=series_type,
-                        request_timeout=request_timeout,
-                    )
-                except APIError:
-                    _LOGGER.warning(
-                        "Server error with 30-day range, trying with last 7 days"
-                    )
-                    # Final fallback to last 7 days
-                    final_from = datetime.now() - timedelta(days=7)
-                    final_to = datetime.now()
-                    return await self._fetch_time_series_data(
-                        metering_point_nos,
-                        final_from,
-                        final_to,
-                        resolution,
-                        series_type=series_type,
-                        request_timeout=request_timeout,
-                    )
-            else:
-                raise
+            _LOGGER.error(
+                "Time series fetch failed: metering_point_nos=%s from=%s to=%s "
+                "resolution=%s series_type=%s error=%s",
+                metering_point_nos,
+                from_date.isoformat(),
+                to_date.isoformat(),
+                resolution,
+                series_type or "default",
+                exc,
+            )
+            raise
 
     async def _fetch_time_series_data(
         self,
@@ -232,7 +214,7 @@ class FortumAPIClient:
         metering_point_nos: list[str] | None = None,
         from_date: datetime | None = None,
         to_date: datetime | None = None,
-        resolution: str = "MONTH",
+        resolution: str | None = None,
     ) -> list[ConsumptionData]:
         """Fetch consumption data and convert to legacy format."""
         if not metering_point_nos:
@@ -241,6 +223,19 @@ class FortumAPIClient:
             if not metering_points:
                 raise APIError("No metering points found for customer")
             metering_point_nos = [mp.metering_point_no for mp in metering_points]
+
+        if from_date is None or to_date is None:
+            raise APIError(
+                "from_date and to_date are required for consumption data fetch"
+            )
+
+        if not resolution:
+            raise APIError("resolution is required for consumption data fetch")
+
+        if from_date >= to_date:
+            raise APIError(
+                "Invalid consumption data range: from_date must be earlier than to_date"
+            )
 
         time_series_list = await self.get_time_series_data(
             metering_point_nos=metering_point_nos,
@@ -1537,7 +1532,8 @@ class FortumAPIClient:
                         error_msg = json_error.get("message", "Unknown error")
                         error_code = json_error.get("code", "Unknown")
                         _LOGGER.error(
-                            "Server error (tRPC): %s (code: %s)",
+                            "Server error (tRPC): %s (code: %s). "
+                            "Additional details may be redacted by Fortum backend.",
                             error_msg,
                             error_code,
                         )

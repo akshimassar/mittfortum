@@ -127,6 +127,129 @@ class TestFortumAPIClient:
             with pytest.raises(APIError, match="No metering points found"):
                 await client.get_consumption_data()
 
+    async def test_get_consumption_data_requires_explicit_date_range(
+        self, mock_hass, mock_auth_client
+    ):
+        """Reject consumption fetch when from/to range is missing."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+
+        with pytest.raises(
+            APIError,
+            match="from_date and to_date are required for consumption data fetch",
+        ):
+            await client.get_consumption_data(
+                metering_point_nos=["6094111"],
+                from_date=None,
+                to_date=datetime.fromisoformat("2026-03-18T00:00:00+00:00"),
+                resolution="MONTH",
+            )
+
+    async def test_get_consumption_data_requires_explicit_resolution(
+        self, mock_hass, mock_auth_client
+    ):
+        """Reject consumption fetch when resolution is missing."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+
+        with pytest.raises(APIError, match="resolution is required"):
+            await client.get_consumption_data(
+                metering_point_nos=["6094111"],
+                from_date=datetime.fromisoformat("2026-03-01T00:00:00+00:00"),
+                to_date=datetime.fromisoformat("2026-03-18T00:00:00+00:00"),
+                resolution=None,
+            )
+
+    async def test_get_time_series_data_requires_explicit_date_range(
+        self, mock_hass, mock_auth_client
+    ):
+        """Reject time series fetch when from/to range is missing."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+
+        with pytest.raises(
+            APIError,
+            match="from_date and to_date are required for time series fetch",
+        ):
+            await client.get_time_series_data(
+                metering_point_nos=["6094111"],
+                from_date=cast("datetime", None),
+                to_date=datetime.fromisoformat("2026-03-18T00:00:00+00:00"),
+                resolution="HOUR",
+                series_type="CONSUMPTION",
+            )
+
+    async def test_get_time_series_data_requires_explicit_resolution(
+        self, mock_hass, mock_auth_client
+    ):
+        """Reject time series fetch when resolution is missing."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+
+        with pytest.raises(APIError, match="resolution is required"):
+            await client.get_time_series_data(
+                metering_point_nos=["6094111"],
+                from_date=datetime.fromisoformat("2026-03-17T00:00:00+00:00"),
+                to_date=datetime.fromisoformat("2026-03-18T00:00:00+00:00"),
+                resolution=cast("str", None),
+                series_type="CONSUMPTION",
+            )
+
+    async def test_get_time_series_data_rejects_invalid_date_order(
+        self, mock_hass, mock_auth_client
+    ):
+        """Reject time series fetch when from_date is not earlier than to_date."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+
+        with pytest.raises(
+            APIError,
+            match="from_date must be earlier than to_date",
+        ):
+            await client.get_time_series_data(
+                metering_point_nos=["6094111"],
+                from_date=datetime.fromisoformat("2026-03-18T00:00:00+00:00"),
+                to_date=datetime.fromisoformat("2026-03-18T00:00:00+00:00"),
+                resolution="HOUR",
+                series_type="CONSUMPTION",
+            )
+
+    async def test_get_time_series_data_logs_context_and_does_not_fallback(
+        self, mock_hass, mock_auth_client
+    ):
+        """Log request context and raise on first API error without date fallback."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        request_from = datetime.fromisoformat("2026-01-01T00:00:00+00:00")
+        request_to = datetime.fromisoformat("2026-06-30T00:00:00+00:00")
+
+        with (
+            patch.object(
+                client,
+                "_fetch_time_series_data",
+                side_effect=APIError(
+                    "Server error: [GraphQL] Subgraph errors redacted"
+                ),
+            ) as mock_fetch,
+            patch("custom_components.fortum.api.client._LOGGER.error") as mock_error,
+        ):
+            with pytest.raises(APIError, match="Subgraph errors redacted"):
+                await client.get_time_series_data(
+                    metering_point_nos=["6094111"],
+                    from_date=request_from,
+                    to_date=request_to,
+                    resolution="HOUR",
+                    series_type="CONSUMPTION",
+                )
+
+        mock_fetch.assert_called_once_with(
+            ["6094111"],
+            request_from,
+            request_to,
+            "HOUR",
+            series_type="CONSUMPTION",
+            request_timeout=None,
+        )
+        mock_error.assert_called_once()
+        assert "Time series fetch failed" in mock_error.call_args.args[0]
+        assert mock_error.call_args.args[1] == ["6094111"]
+        assert mock_error.call_args.args[2] == request_from.isoformat()
+        assert mock_error.call_args.args[3] == request_to.isoformat()
+
     async def test_get_price_data_uses_spot_prices_endpoint(
         self, mock_hass, mock_auth_client
     ):
@@ -264,7 +387,12 @@ class TestFortumAPIClient:
                 return_value=[],
             ) as mock_from_time_series,
         ):
-            await client.get_consumption_data(metering_point_nos=["123"])
+            await client.get_consumption_data(
+                metering_point_nos=["123"],
+                from_date=datetime.fromisoformat("2026-03-01T00:00:00+00:00"),
+                to_date=datetime.fromisoformat("2026-03-18T00:00:00+00:00"),
+                resolution="MONTH",
+            )
 
         mock_from_time_series.assert_called_once_with(
             mock_time_series, timezone="Europe/Stockholm"
