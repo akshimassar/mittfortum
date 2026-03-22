@@ -2518,11 +2518,11 @@ class MyEnergyFuturePriceCard extends HTMLElement {
   }
 
   connectedCallback() {
-    if (this._resizeObserver || typeof ResizeObserver === "undefined") {
-      return;
+    if (!this._resizeObserver && typeof ResizeObserver !== "undefined") {
+      this._resizeObserver = new ResizeObserver(() => this._scheduleUpdate());
+      this._resizeObserver.observe(this);
     }
-    this._resizeObserver = new ResizeObserver(() => this._scheduleUpdate());
-    this._resizeObserver.observe(this);
+    this._scheduleNowTick();
   }
 
   disconnectedCallback() {
@@ -2534,6 +2534,7 @@ class MyEnergyFuturePriceCard extends HTMLElement {
       this._resizeObserver.disconnect();
       this._resizeObserver = undefined;
     }
+    this._clearNowTick();
     this._unbindShadeFromChart();
   }
 
@@ -2731,6 +2732,23 @@ class MyEnergyFuturePriceCard extends HTMLElement {
       this._updateScheduled = false;
       this._updateChart();
     });
+  }
+
+  _scheduleNowTick() {
+    this._clearNowTick();
+    const now = Date.now();
+    const delay = 60000 - (now % 60000) + 150;
+    this._nowTickTimeout = setTimeout(() => {
+      this._applyTomorrowShadeGraphic();
+      this._scheduleNowTick();
+    }, delay);
+  }
+
+  _clearNowTick() {
+    if (this._nowTickTimeout) {
+      clearTimeout(this._nowTickTimeout);
+      this._nowTickTimeout = undefined;
+    }
   }
 
   _fetchStats(statIds, start, end, period, types) {
