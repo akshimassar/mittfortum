@@ -18,7 +18,10 @@ from homeassistant.components.lovelace.const import (
     LOVELACE_DATA,
     MODE_STORAGE,
 )
-from homeassistant.components.lovelace.dashboard import DashboardsCollection
+from homeassistant.components.lovelace.dashboard import (
+    DashboardsCollection,
+    LovelaceStorage,
+)
 from homeassistant.components.lovelace.resources import ResourceStorageCollection
 from homeassistant.const import (
     CONF_ICON,
@@ -495,7 +498,7 @@ async def _async_ensure_dashboard_strategy_dashboard(hass: HomeAssistant) -> Non
         )
         return
 
-    await dashboards_collection.async_create_item(
+    created_dashboard = await dashboards_collection.async_create_item(
         {
             CONF_URL_PATH: _DASHBOARD_URL_PATH,
             CONF_TITLE: _DASHBOARD_TITLE,
@@ -506,15 +509,7 @@ async def _async_ensure_dashboard_strategy_dashboard(hass: HomeAssistant) -> Non
         }
     )
 
-    dashboard_config = lovelace_data.dashboards.get(_DASHBOARD_URL_PATH)
-    if dashboard_config is None:
-        _LOGGER.warning(
-            "Created Fortum dashboard /%s but config handle was unavailable; "
-            "skipping strategy save",
-            _DASHBOARD_URL_PATH,
-        )
-        return
-
+    dashboard_config = LovelaceStorage(hass, created_dashboard)
     await dashboard_config.async_save({"strategy": {"type": _DASHBOARD_STRATEGY_TYPE}})
     _LOGGER.info(
         "Created Fortum dashboard at /%s using strategy '%s'",

@@ -154,8 +154,8 @@ class TestInit:
 
     async def test_auto_dashboard_creation_creates_strategy_dashboard(self, mock_hass):
         """Auto dashboard creation should create Fortum strategy dashboard once."""
-        dashboard_handle = AsyncMock()
-        dashboard_handle.async_save = AsyncMock()
+        dashboard_storage = AsyncMock()
+        dashboard_storage.async_save = AsyncMock()
         lovelace_data = SimpleNamespace(
             dashboards={},
             yaml_dashboards={},
@@ -163,20 +163,28 @@ class TestInit:
         )
         mock_hass.data = {LOVELACE_DATA: lovelace_data}
 
-        with patch("custom_components.fortum.DashboardsCollection") as mock_collection:
+        with (
+            patch("custom_components.fortum.DashboardsCollection") as mock_collection,
+            patch(
+                "custom_components.fortum.LovelaceStorage",
+                return_value=dashboard_storage,
+            ) as mock_lovelace_storage,
+        ):
             collection = mock_collection.return_value
             collection.async_load = AsyncMock()
             collection.async_items.return_value = []
-
-            async def _create_item(_data):
-                lovelace_data.dashboards["fortum-energy"] = dashboard_handle
-
-            collection.async_create_item = AsyncMock(side_effect=_create_item)
+            collection.async_create_item = AsyncMock(
+                return_value={"id": "fortum-energy"}
+            )
 
             await _async_ensure_dashboard_strategy_dashboard(mock_hass)
 
         collection.async_create_item.assert_awaited_once()
-        dashboard_handle.async_save.assert_awaited_once_with(
+        mock_lovelace_storage.assert_called_once_with(
+            mock_hass,
+            {"id": "fortum-energy"},
+        )
+        dashboard_storage.async_save.assert_awaited_once_with(
             {"strategy": {"type": "fortum-energy"}}
         )
 
