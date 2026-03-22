@@ -14,6 +14,7 @@
           "username": "Fortum username",
           "password": "Fortum password",
           "region": "Fortum region (se or fi)",
+          "create_dashboard": "Create Fortum dashboard",
           "debug_entities": "Show debug entities",
           "debug_logging": "Enable detailed debug logging",
           "force_short_token_lifetime": "Force short token lifetime (15 minutes)"
@@ -28,6 +29,7 @@
           "username": "Fortum username",
           "password": "Fortum password",
           "region": "Fortum region (se or fi)",
+          "create_dashboard": "Create Fortum dashboard",
           "debug_entities": "Show debug entities",
           "debug_logging": "Enable detailed debug logging",
           "force_short_token_lifetime": "Force short token lifetime (15 minutes)"

@@ -15,7 +15,11 @@ from custom_components.fortum import (
     async_setup_entry,
     async_unload_entry,
 )
-from custom_components.fortum.const import CONF_DEBUG_LOGGING, DOMAIN
+from custom_components.fortum.const import (
+    CONF_CREATE_DASHBOARD,
+    CONF_DEBUG_LOGGING,
+    DOMAIN,
+)
 
 
 class TestInit:
@@ -45,6 +49,9 @@ class TestInit:
             patch(
                 "custom_components.fortum.SpotPriceSyncCoordinator"
             ) as mock_price_coordinator,
+            patch(
+                "custom_components.fortum._schedule_dashboard_strategy_dashboard_creation"
+            ) as mock_schedule_dashboard_creation,
         ):
             mock_auth_instance = AsyncMock()
             mock_auth_instance.session_data = {}
@@ -72,6 +79,58 @@ class TestInit:
             assert result is True
             assert DOMAIN in mock_hass.data
             assert entry.entry_id in mock_hass.data[DOMAIN]
+            mock_schedule_dashboard_creation.assert_not_called()
+
+    async def test_async_setup_entry_schedules_dashboard_creation_when_enabled(
+        self,
+        mock_hass,
+    ):
+        """Dashboard creation should be scheduled only when option is enabled."""
+        entry = AsyncMock(spec=ConfigEntry)
+        entry.data = {
+            CONF_USERNAME: "test@example.com",
+            CONF_PASSWORD: "test_password",
+        }
+        entry.entry_id = "test_entry_id"
+        entry.options = {CONF_CREATE_DASHBOARD: True}
+        entry.add_update_listener = Mock(return_value=Mock())
+        entry.async_on_unload = Mock()
+
+        mock_hass.data = {DOMAIN: {}}
+
+        with (
+            patch("custom_components.fortum.OAuth2AuthClient") as mock_auth,
+            patch("custom_components.fortum.FortumAPIClient") as mock_api,
+            patch("custom_components.fortum.MittFortumDevice") as mock_device,
+            patch(
+                "custom_components.fortum.HourlyConsumptionSyncCoordinator"
+            ) as mock_coordinator,
+            patch(
+                "custom_components.fortum.SpotPriceSyncCoordinator"
+            ) as mock_price_coordinator,
+            patch(
+                "custom_components.fortum._schedule_dashboard_strategy_dashboard_creation"
+            ) as mock_schedule_dashboard_creation,
+        ):
+            mock_auth_instance = AsyncMock()
+            mock_auth_instance.session_data = {}
+            mock_auth.return_value = mock_auth_instance
+
+            mock_api_instance = AsyncMock()
+            mock_api_instance.get_customer_id.return_value = "customer_123"
+            mock_api.return_value = mock_api_instance
+
+            mock_device.return_value = AsyncMock()
+            mock_coordinator.return_value = AsyncMock()
+            mock_price_coordinator.return_value = AsyncMock()
+            mock_hass.config_entries.async_forward_entry_setups = AsyncMock(
+                return_value=True
+            )
+
+            result = await async_setup_entry(mock_hass, entry)
+
+            assert result is True
+            mock_schedule_dashboard_creation.assert_called_once_with(mock_hass)
 
     async def test_async_setup_entry_auth_failure(self, mock_hass):
         """Test setup with authentication failure."""

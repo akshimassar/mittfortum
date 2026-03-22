@@ -44,9 +44,11 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
 from .const import (
+    CONF_CREATE_DASHBOARD,
     CONF_DEBUG_LOGGING,
     CONF_FORCE_SHORT_TOKEN_LIFETIME,
     CONF_REGION,
+    DEFAULT_CREATE_DASHBOARD,
     DEFAULT_DEBUG_LOGGING,
     DEFAULT_FORCE_SHORT_TOKEN_LIFETIME,
     DEFAULT_REGION,
@@ -148,7 +150,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _schedule_post_setup_refreshes(hass, entry, coordinator, price_coordinator)
         await _async_register_dashboard_strategy_static_path(hass)
         _schedule_dashboard_strategy_resource_registration(hass)
-        _schedule_dashboard_strategy_dashboard_creation(hass)
+        if entry.options.get(CONF_CREATE_DASHBOARD, DEFAULT_CREATE_DASHBOARD):
+            _schedule_dashboard_strategy_dashboard_creation(hass)
 
         _LOGGER.debug(
             "Fortum setup finished for entry_id=%s in %.2fs",

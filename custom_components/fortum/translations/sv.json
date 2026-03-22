@@ -14,6 +14,7 @@
           "username": "Fortum-anvandarnamn",
           "password": "Fortum-losenord",
           "region": "Fortum-region (se eller fi)",
+          "create_dashboard": "Skapa Fortum-dashboard",
           "debug_entities": "Visa debug-entiteter",
           "debug_logging": "Aktivera detaljerad debug-loggning",
           "force_short_token_lifetime": "Tvinga kort tokenlivslangd (15 minuter)"
@@ -28,6 +29,7 @@
           "username": "Fortum-anvandarnamn",
           "password": "Fortum-losenord",
           "region": "Fortum-region (se eller fi)",
+          "create_dashboard": "Skapa Fortum-dashboard",
           "debug_entities": "Visa debug-entiteter",
           "debug_logging": "Aktivera detaljerad debug-loggning",
           "force_short_token_lifetime": "Tvinga kort tokenlivslangd (15 minuter)"

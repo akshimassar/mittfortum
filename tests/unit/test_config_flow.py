@@ -15,10 +15,12 @@ from custom_components.fortum.config_flow import (
     validate_input,
 )
 from custom_components.fortum.const import (
+    CONF_CREATE_DASHBOARD,
     CONF_DEBUG_ENTITIES,
     CONF_DEBUG_LOGGING,
     CONF_FORCE_SHORT_TOKEN_LIFETIME,
     CONF_REGION,
+    DEFAULT_CREATE_DASHBOARD,
     DEFAULT_DEBUG_ENTITIES,
     DEFAULT_DEBUG_LOGGING,
     DEFAULT_FORCE_SHORT_TOKEN_LIFETIME,
@@ -79,6 +81,7 @@ class TestMittFortumConfigFlow:
                 CONF_REGION: "se",
             }
             assert result["options"] == {
+                CONF_CREATE_DASHBOARD: False,
                 CONF_DEBUG_ENTITIES: True,
                 CONF_DEBUG_LOGGING: True,
                 CONF_FORCE_SHORT_TOKEN_LIFETIME: True,
@@ -106,6 +109,7 @@ class TestMittFortumConfigFlow:
 
         assert result["type"] == FlowResultType.CREATE_ENTRY
         assert result["options"] == {
+            CONF_CREATE_DASHBOARD: DEFAULT_CREATE_DASHBOARD,
             CONF_DEBUG_ENTITIES: DEFAULT_DEBUG_ENTITIES,
             CONF_DEBUG_LOGGING: DEFAULT_DEBUG_LOGGING,
             CONF_FORCE_SHORT_TOKEN_LIFETIME: DEFAULT_FORCE_SHORT_TOKEN_LIFETIME,
@@ -270,6 +274,7 @@ class TestMittFortumOptionsFlow:
                 CONF_USERNAME: "new_user",
                 CONF_PASSWORD: "new_pass",
                 CONF_REGION: "fi",
+                CONF_CREATE_DASHBOARD: True,
                 CONF_DEBUG_ENTITIES: True,
                 CONF_DEBUG_LOGGING: True,
                 CONF_FORCE_SHORT_TOKEN_LIFETIME: True,
@@ -278,6 +283,7 @@ class TestMittFortumOptionsFlow:
 
         assert result.get("type") == FlowResultType.CREATE_ENTRY
         assert result.get("data") == {
+            CONF_CREATE_DASHBOARD: True,
             CONF_DEBUG_ENTITIES: True,
             CONF_DEBUG_LOGGING: True,
             CONF_FORCE_SHORT_TOKEN_LIFETIME: True,

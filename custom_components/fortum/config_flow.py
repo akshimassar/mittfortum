@@ -13,10 +13,12 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 from .const import (
+    CONF_CREATE_DASHBOARD,
     CONF_DEBUG_ENTITIES,
     CONF_DEBUG_LOGGING,
     CONF_FORCE_SHORT_TOKEN_LIFETIME,
     CONF_REGION,
+    DEFAULT_CREATE_DASHBOARD,
     DEFAULT_DEBUG_ENTITIES,
     DEFAULT_DEBUG_LOGGING,
     DEFAULT_FORCE_SHORT_TOKEN_LIFETIME,
@@ -33,6 +35,10 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Required(CONF_USERNAME): str,
         vol.Required(CONF_PASSWORD): str,
         vol.Optional(CONF_REGION, default=DEFAULT_REGION): vol.In(SUPPORTED_REGIONS),
+        vol.Optional(
+            CONF_CREATE_DASHBOARD,
+            default=DEFAULT_CREATE_DASHBOARD,
+        ): bool,
         vol.Optional(CONF_DEBUG_ENTITIES, default=DEFAULT_DEBUG_ENTITIES): bool,
         vol.Optional(CONF_DEBUG_LOGGING, default=DEFAULT_DEBUG_LOGGING): bool,
         vol.Optional(
@@ -115,6 +121,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_FORCE_SHORT_TOKEN_LIFETIME,
                         DEFAULT_FORCE_SHORT_TOKEN_LIFETIME,
                     ),
+                    CONF_CREATE_DASHBOARD: user_input.get(
+                        CONF_CREATE_DASHBOARD,
+                        DEFAULT_CREATE_DASHBOARD,
+                    ),
                 }
 
                 return self.async_create_entry(
@@ -169,6 +179,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_FORCE_SHORT_TOKEN_LIFETIME: user_input[
                     CONF_FORCE_SHORT_TOKEN_LIFETIME
                 ],
+                CONF_CREATE_DASHBOARD: user_input[CONF_CREATE_DASHBOARD],
             }
 
             self.hass.config_entries.async_update_entry(
@@ -197,6 +208,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                             DEFAULT_REGION,
                         ),
                     ): vol.In(SUPPORTED_REGIONS),
+                    vol.Required(
+                        CONF_CREATE_DASHBOARD,
+                        default=self._config_entry.options.get(
+                            CONF_CREATE_DASHBOARD,
+                            DEFAULT_CREATE_DASHBOARD,
+                        ),
+                    ): bool,
                     vol.Required(
                         CONF_DEBUG_ENTITIES,
                         default=self._config_entry.options.get(

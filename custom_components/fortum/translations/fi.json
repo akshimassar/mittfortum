@@ -14,6 +14,7 @@
           "username": "Fortum-kayttajanimi",
           "password": "Fortum-salasana",
           "region": "Fortum-alue (se tai fi)",
+          "create_dashboard": "Luo Fortum-koontinakyma",
           "debug_entities": "Nayta debug-entiteetit",
           "debug_logging": "Ota yksityiskohtainen debug-loki kayttoon",
           "force_short_token_lifetime": "Pakota lyhyt tokenin voimassaoloaika (15 minuuttia)"
@@ -28,6 +29,7 @@
           "username": "Fortum-kayttajanimi",
           "password": "Fortum-salasana",
           "region": "Fortum-alue (se tai fi)",
+          "create_dashboard": "Luo Fortum-koontinakyma",
           "debug_entities": "Nayta debug-entiteetit",
           "debug_logging": "Ota yksityiskohtainen debug-loki kayttoon",
           "force_short_token_lifetime": "Pakota lyhyt tokenin voimassaoloaika (15 minuuttia)"
