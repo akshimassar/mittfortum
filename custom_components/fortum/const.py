@@ -87,7 +87,7 @@ CLEAR_STATS_BUTTON_KEY = "statistics_clear_all"
 HOURLY_DATA_RECENT_WINDOW_DAYS = 14
 
 # Historical data sync will request all available data in specified chunks
-HOURLY_DATA_HISTORICAL_CHUNK_DAYS = 180
+HOURLY_DATA_HISTORICAL_CHUNK_DAYS = 14
 
 # Timeout for Fortum hourly-data API requests (seconds)
 HOURLY_DATA_REQUEST_TIMEOUT_SECONDS = 30.0

@@ -54,7 +54,7 @@ All while keeping hourly resolution to it:
 
 - On first start, the integration performs a full historical sync for each discovered metering point.
 - The full sync covers all hourly history available from Fortum (often years).
-- Expect initial history sync to take around **3 minutes per year** of available data.
+- Expect initial history sync to take up to **5 minutes per year** of available data.
 - Integration entities become available after this initial history sync completes.
 
 ## Entities

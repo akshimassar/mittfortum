@@ -44,7 +44,8 @@ custom_components/fortum/
 - Imports hourly external statistics per metering point.
 - Maintains cumulative `sum` for hourly consumption/cost statistics.
 - Writes `fortum:price_forecast` statistics from fetched spot-price windows.
-- Uses a 14-day recent window and 180-day chunks for historical catch-up.
+- Uses a 14-day recent window and 14-day chunks for historical catch-up.
+- Fortum API can return GraphQL errors or take over 30 seconds for larger windows (observed even around 30 days).
 
 ### Coordinators (`coordinators.py`)
 - Main coordinator runs statistics sync cycle.
