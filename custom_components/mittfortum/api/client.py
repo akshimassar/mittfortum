@@ -58,6 +58,7 @@ class FortumAPIClient:
         self._endpoints = APIEndpoints.for_region(getattr(auth_client, "region", "se"))
         self._earliest_available_by_metering_point: dict[str, datetime] = {}
         self._last_price_forecast_digest: str | None = None
+        self._last_hourly_stats_digest: str | None = None
 
     async def get_customer_id(self) -> str:
         """Extract customer ID from session data or ID token."""
@@ -370,6 +371,7 @@ class FortumAPIClient:
             raise APIError("Timed out while clearing statistics") from exc
 
         self._last_price_forecast_digest = None
+        self._last_hourly_stats_digest = None
 
         return len(statistic_ids)
 
@@ -664,10 +666,30 @@ class FortumAPIClient:
             dt_util.as_utc(to_date).isoformat(),
         )
 
+        local_tz = ZoneInfo(self._endpoints.profile.timezone)
+        request_from_local = (
+            dt_util.as_utc(from_date)
+            .astimezone(local_tz)
+            .replace(
+                hour=0,
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
+        )
+        request_to_local = dt_util.as_utc(to_date).astimezone(local_tz).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        ) + timedelta(days=1)
+        request_from_date = dt_util.as_utc(request_from_local)
+        request_to_date = dt_util.as_utc(request_to_local)
+
         time_series_list = await self.get_time_series_data(
             metering_point_nos=[metering_point_no],
-            from_date=from_date,
-            to_date=to_date,
+            from_date=request_from_date,
+            to_date=request_to_date,
             resolution="HOUR",
             series_type="CONSUMPTION",
             request_timeout=HOURLY_DATA_REQUEST_TIMEOUT_SECONDS,
@@ -704,8 +726,6 @@ class FortumAPIClient:
                     second=0,
                     microsecond=0,
                 )
-                if point_time > to_date:
-                    continue
 
                 if point.price is None:
                     if first_missing_price_at is None:
@@ -878,6 +898,56 @@ class FortumAPIClient:
             price_rows = cast("list[StatisticData]", price_statistics)
             temperature_rows = cast("list[StatisticData]", temperature_statistics)
 
+            def _start_text(start: datetime | float) -> str:
+                return str(start)
+
+            digest_parts = [
+                time_series.metering_point_no,
+                consumption_metadata["statistic_id"],
+                consumption_metadata["unit_of_measurement"],
+                *[
+                    (
+                        f"c|{_start_text(row['start'])}|{row['state']:.12f}|"
+                        f"{row['mean']:.12f}|{row['min']:.12f}|"
+                        f"{row['max']:.12f}|{row.get('sum', 0.0):.12f}"
+                    )
+                    for row in consumption_statistics
+                ],
+                cost_metadata["statistic_id"],
+                cost_metadata["unit_of_measurement"],
+                *[
+                    (
+                        f"k|{_start_text(row['start'])}|{row['state']:.12f}|"
+                        f"{row['mean']:.12f}|{row['min']:.12f}|"
+                        f"{row['max']:.12f}|{row.get('sum', 0.0):.12f}"
+                    )
+                    for row in cost_statistics
+                ],
+                price_metadata["statistic_id"],
+                price_metadata["unit_of_measurement"],
+                *[
+                    (
+                        f"p|{_start_text(row['start'])}|{row['state']:.12f}|"
+                        f"{row['mean']:.12f}|{row['min']:.12f}|"
+                        f"{row['max']:.12f}"
+                    )
+                    for row in price_statistics
+                ],
+                temperature_metadata["statistic_id"],
+                temperature_metadata["unit_of_measurement"],
+                *[
+                    (
+                        f"t|{_start_text(row['start'])}|{row['state']:.12f}|"
+                        f"{row['mean']:.12f}|{row['min']:.12f}|"
+                        f"{row['max']:.12f}"
+                    )
+                    for row in temperature_statistics
+                ],
+            ]
+            digest = hashlib.sha256(";".join(digest_parts).encode("utf-8")).hexdigest()
+            if digest == self._last_hourly_stats_digest:
+                continue
+
             async_add_external_statistics(
                 self._hass, consumption_metadata, consumption_rows
             )
@@ -898,6 +968,8 @@ class FortumAPIClient:
                     temperature_rows,
                 )
                 imported_points += len(temperature_statistics)
+
+            self._last_hourly_stats_digest = digest
 
         seed_text = (
             f"{total_consumption_seed:.3f}"

@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -1118,3 +1119,101 @@ class TestFortumAPIClient:
         assert metadata_by_sid[hourly_consumption_sid]["has_sum"] is True
         assert metadata_by_sid[hourly_consumption_sid]["unit_class"] == "energy"
         assert metadata_by_sid[hourly_cost_sid]["has_sum"] is True
+
+    async def test_record_hourly_data_stats_uses_day_aligned_request_window(
+        self,
+        mock_hass,
+        mock_auth_client,
+    ) -> None:
+        """Hourly stats fetch should use profile-local day-aligned request window."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        from_date = datetime.fromisoformat("2026-03-10T06:00:00+00:00")
+        to_date = datetime.fromisoformat("2026-03-10T12:00:00+00:00")
+
+        with (
+            patch.object(
+                client, "get_time_series_data", return_value=[]
+            ) as mock_get_series,
+            patch.object(client, "_get_hourly_stat_sum_before_hour", return_value=0.0),
+        ):
+            await client._record_hourly_data_stats(
+                "6094111",
+                from_date,
+                to_date,
+                continue_after_missing=False,
+            )
+
+        kwargs = mock_get_series.call_args.kwargs
+        profile_tz = ZoneInfo(client._endpoints.profile.timezone)
+        expected_from = (
+            from_date.astimezone(profile_tz)
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .astimezone(ZoneInfo("UTC"))
+        )
+        expected_to = to_date.astimezone(profile_tz).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ).astimezone(ZoneInfo("UTC")) + timedelta(days=1)
+
+        assert kwargs["from_date"] == expected_from
+        assert kwargs["to_date"] == expected_to
+
+    async def test_record_hourly_data_stats_skips_unchanged_digest(
+        self,
+        mock_hass,
+        mock_auth_client,
+    ) -> None:
+        """Repeated identical hourly payload should be skipped by digest."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        from_date = datetime.fromisoformat("2026-03-10T00:00:00+00:00")
+        to_date = datetime.fromisoformat("2026-03-10T03:00:00+00:00")
+
+        time_series = TimeSeries(
+            delivery_site_category="CONSUMPTION",
+            measurement_unit="kWh",
+            metering_point_no="6094111",
+            price_unit="c/kWh",
+            cost_unit="EUR",
+            temperature_unit="celsius",
+            series=[
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-10T00:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=1.0, type="ENERGY")],
+                    cost=[
+                        CostDataPoint(
+                            total=0.5,
+                            value=0.5,
+                            type="COST_SALES_ELECTRICITY",
+                        )
+                    ],
+                    price=Price(
+                        total=1.0,
+                        value=0.8,
+                        vat_amount=0.2,
+                        vat_percentage=25,
+                    ),
+                    temperature_reading=None,
+                )
+            ],
+        )
+
+        with (
+            patch.object(client, "get_time_series_data", return_value=[time_series]),
+            patch.object(client, "_get_hourly_stat_sum_before_hour", return_value=0.0),
+            patch(
+                "custom_components.mittfortum.api.client.async_add_external_statistics"
+            ) as mock_add_stats,
+        ):
+            await client._record_hourly_data_stats(
+                "6094111",
+                from_date,
+                to_date,
+                continue_after_missing=False,
+            )
+            await client._record_hourly_data_stats(
+                "6094111",
+                from_date,
+                to_date,
+                continue_after_missing=False,
+            )
+
+        assert mock_add_stats.call_count == 3
