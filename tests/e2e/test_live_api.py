@@ -501,6 +501,101 @@ async def test_live_historical_backfill_probe_oldest_hours(
 
 
 @pytest.mark.e2e
+async def test_live_fetch_hourly_from_session_earliest_marker(
+    live_hass: HomeAssistant, e2e_settings: E2ESettings
+):
+    """Use session-derived earliest marker as start for an hourly fetch."""
+    if not _is_historical_enabled():
+        pytest.skip(
+            "Set FORTUM_E2E_HISTORICAL=1 to run session-earliest hourly fetch probe"
+        )
+
+    auth_client = OAuth2AuthClient(
+        hass=live_hass,
+        username=e2e_settings.username,
+        password=e2e_settings.password,
+        region=e2e_settings.region,
+    )
+    await auth_client.authenticate()
+
+    api_client = FortumAPIClient(live_hass, auth_client)
+    metering_points = await api_client.get_metering_points()
+    if not metering_points:
+        pytest.fail("No metering points available for session-earliest fetch probe")
+
+    selected_metering_point = next(
+        (
+            point
+            for point in metering_points
+            if point.earliest_hourly_available_at_utc is not None
+        ),
+        None,
+    )
+    if selected_metering_point is None:
+        pytest.fail(
+            "No metering point exposed earliest_hourly_available_at_utc in session data"
+        )
+
+    from_date = selected_metering_point.earliest_hourly_available_at_utc
+    assert from_date is not None
+
+    request_window_days = int(os.getenv("HISTORICAL_E2E_CHUNK_DAYS", "14"))
+    if request_window_days < 1:
+        pytest.fail(
+            f"HISTORICAL_E2E_CHUNK_DAYS must be >= 1 (received {request_window_days})"
+        )
+
+    now = datetime.now(tz=from_date.tzinfo)
+    to_date = min(now, from_date + timedelta(days=request_window_days))
+    if to_date <= from_date:
+        pytest.fail(
+            "Computed invalid date range from session earliest marker: "
+            f"from={from_date.isoformat()} to={to_date.isoformat()}"
+        )
+
+    _LOGGER.info(
+        "Session-earliest hourly fetch metering_point=%s earliest=%s range=%s..%s",
+        selected_metering_point.metering_point_no,
+        from_date.isoformat(),
+        from_date.isoformat(),
+        to_date.isoformat(),
+    )
+
+    started = perf_counter()
+    try:
+        hourly_series = await api_client.get_time_series_data(
+            metering_point_nos=[selected_metering_point.metering_point_no],
+            from_date=from_date,
+            to_date=to_date,
+            resolution="HOUR",
+            series_type="CONSUMPTION",
+            request_timeout=HOURLY_DATA_REQUEST_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:  # pragma: no cover - live diagnostics path
+        elapsed = perf_counter() - started
+        session_snapshot = await _session_debug_snapshot(api_client)
+        pytest.fail(
+            _format_error("Session-earliest hourly fetch", exc)
+            + f" | metering_point={selected_metering_point.metering_point_no}"
+            + f" from={from_date.isoformat()} to={to_date.isoformat()}"
+            + f" elapsed_seconds={elapsed:.3f}"
+            + f" session_snapshot={_safe_preview(session_snapshot, max_len=2000)}"
+        )
+
+    elapsed = perf_counter() - started
+    _LOGGER.info(
+        "Session-earliest hourly fetch completed in %.3fs series_count=%d",
+        elapsed,
+        len(hourly_series),
+    )
+
+    assert isinstance(hourly_series, list), (
+        "Session-earliest hourly fetch did not return list "
+        f"(type={type(hourly_series).__name__})"
+    )
+
+
+@pytest.mark.e2e
 async def test_live_integration_setup_under_five_seconds(
     live_hass: HomeAssistant, e2e_settings: E2ESettings
 ):
