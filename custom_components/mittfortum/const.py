@@ -79,7 +79,7 @@ MODEL = "MittFortum"
 PRICE_SENSOR_KEY = "price_per_kwh"
 TOMORROW_MAX_PRICE_SENSOR_KEY = "tomorrow_max_price"
 TOMORROW_MAX_PRICE_TIME_SENSOR_KEY = "tomorrow_max_price_time"
-STATS_SYNC_SENSOR_KEY = "statistics_last_sync"
+STATS_LAST_SYNC_SENSOR_KEY = "statistics_last_sync"
 FULL_SYNC_BUTTON_KEY = "statistics_full_sync"
 CLEAR_STATS_BUTTON_KEY = "statistics_clear_all"
 

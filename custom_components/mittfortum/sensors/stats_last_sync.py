@@ -1,12 +1,13 @@
-"""Statistics sync sensor for MittFortum."""
+"""Statistics last-sync sensor for MittFortum."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
+from homeassistant.helpers.entity import EntityCategory
 
-from ..const import STATS_SYNC_SENSOR_KEY
+from ..const import STATS_LAST_SYNC_SENSOR_KEY
 from ..entity import MittFortumEntity
 
 if TYPE_CHECKING:
@@ -16,19 +17,21 @@ if TYPE_CHECKING:
     from ..device import MittFortumDevice
 
 
-class MittFortumStatisticsSyncSensor(MittFortumEntity, SensorEntity):
+class MittFortumStatisticsLastSyncSensor(MittFortumEntity, SensorEntity):
     """Sensor exposing last successful statistics sync timestamp."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(
         self,
         coordinator: HourlyConsumptionSyncCoordinator,
         device: MittFortumDevice,
     ) -> None:
-        """Initialize statistics sync sensor."""
+        """Initialize statistics last-sync sensor."""
         super().__init__(
             coordinator=coordinator,
             device=device,
-            entity_key=STATS_SYNC_SENSOR_KEY,
+            entity_key=STATS_LAST_SYNC_SENSOR_KEY,
             name="Statistics Last Sync",
         )
 

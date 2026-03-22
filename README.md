@@ -64,7 +64,6 @@ The integration creates these regular entities:
 - **Price per kWh Sensor** (`sensor`): Latest spot price, refreshed by the price coordinator every 5 minutes.
 - **Tomorrow Max Price** (`sensor`): Maximum published spot price for tomorrow; unavailable until tomorrow prices are published.
 - **Tomorrow Max Price Time** (`sensor`, timestamp): Timestamp for tomorrow's maximum spot price; unavailable until tomorrow prices are published.
-- **Statistics Last Sync** (`sensor`, timestamp): Last successful statistics import time.
 
 Additionally, it imports hourly Recorder statistics for each available metering point:
 
@@ -78,7 +77,9 @@ These appear in Home Assistant as **"Entity without state"** entities (statistic
 - `mittfortum:hourly_temperature_<metering_point_no>`
 - `mittfortum:price_forecast` (hourly spot-price forecast aggregation)
 
-If `Debug entities` is enabled in integration options, two debug buttons are exposed:
+If `Debug entities` is enabled in integration options, one debug sensor and two debug buttons are exposed:
+
+- **Statistics Last Sync** (`sensor`, timestamp, diagnostic): Last successful statistics import time.
 
 - **Full History Re-Sync** (`button`): Runs a forced full historical sync.
 - **Clear Statistics** (`button`): Clears imported statistics series for currently discovered metering points.

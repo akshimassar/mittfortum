@@ -2,7 +2,7 @@
 
 from .metering_point import MittFortumMeteringPointSensor
 from .price import MittFortumPriceSensor
-from .stats_sync import MittFortumStatisticsSyncSensor
+from .stats_last_sync import MittFortumStatisticsLastSyncSensor
 from .tomorrow_price import (
     MittFortumTomorrowMaxPriceSensor,
     MittFortumTomorrowMaxPriceTimeSensor,
@@ -11,7 +11,7 @@ from .tomorrow_price import (
 __all__ = [
     "MittFortumMeteringPointSensor",
     "MittFortumPriceSensor",
-    "MittFortumStatisticsSyncSensor",
+    "MittFortumStatisticsLastSyncSensor",
     "MittFortumTomorrowMaxPriceSensor",
     "MittFortumTomorrowMaxPriceTimeSensor",
 ]
