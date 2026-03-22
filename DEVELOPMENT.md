@@ -59,6 +59,10 @@ custom_components/fortum/
 - Typed models for API payloads.
 - Parsing helpers for metering point and time-series payload variants.
 
+## TODO
+
+- Persist pending historical sync per metering point across statistics sync failures (for both `force_resync=True` and auto-historical when existing statistics are missing), retry those points on subsequent sync cycles, and clear each pending state only after that metering point completes a successful historical sync.
+
 ## Development
 
 ### Setup
