@@ -42,11 +42,17 @@ class TestEnhancedRetryLogic:
                     mock_get_client.return_value.__aenter__.return_value = mock_client
                     mock_client.get.return_value = Mock()
 
-                    result = await client._get("https://example.com/api/test")
+                    with patch(
+                        "custom_components.fortum.api.client.asyncio.sleep"
+                    ) as mock_sleep:
+                        result = await client._get("https://example.com/api/test")
 
                     # Should succeed after 4 retries (5 total attempts)
                     assert result == {"success": True}
                     assert call_count == 5
+                    expected_calls = [5.0, 10.0, 15.0, 20.0]
+                    actual_calls = [call[0][0] for call in mock_sleep.call_args_list]
+                    assert actual_calls == expected_calls
 
     async def test_session_based_auth_exponential_backoff(
         self, mock_hass, mock_auth_client
@@ -143,11 +149,18 @@ class TestEnhancedRetryLogic:
                     mock_get_client.return_value.__aenter__.return_value = mock_client
                     mock_client.get.return_value = Mock()
 
-                    # Should raise after 4 retries (5 total attempts)
-                    with pytest.raises(
-                        APIError, match="Token expired - retry required"
-                    ):
-                        await client._get("https://example.com/api/test")
+                    with patch(
+                        "custom_components.fortum.api.client.asyncio.sleep"
+                    ) as mock_sleep:
+                        # Should raise after 4 retries (5 total attempts)
+                        with pytest.raises(
+                            APIError, match="Token expired - retry required"
+                        ):
+                            await client._get("https://example.com/api/test")
+
+                    expected_calls = [5.0, 10.0, 15.0, 20.0]
+                    actual_calls = [call[0][0] for call in mock_sleep.call_args_list]
+                    assert actual_calls == expected_calls
 
     async def test_session_based_auth_different_delays_per_retry(
         self, mock_hass, mock_auth_client
