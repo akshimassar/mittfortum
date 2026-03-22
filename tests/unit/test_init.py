@@ -154,8 +154,9 @@ class TestInit:
 
     async def test_auto_dashboard_creation_creates_strategy_dashboard(self, mock_hass):
         """Auto dashboard creation should create Fortum strategy dashboard once."""
-        dashboard_storage = AsyncMock()
-        dashboard_storage.async_save = AsyncMock()
+        strategy_storage = AsyncMock()
+        strategy_storage.async_save = AsyncMock()
+        runtime_storage = Mock()
         lovelace_data = SimpleNamespace(
             dashboards={},
             yaml_dashboards={},
@@ -167,26 +168,47 @@ class TestInit:
             patch("custom_components.fortum.DashboardsCollection") as mock_collection,
             patch(
                 "custom_components.fortum.LovelaceStorage",
-                return_value=dashboard_storage,
+                side_effect=[strategy_storage, runtime_storage],
             ) as mock_lovelace_storage,
+            patch(
+                "custom_components.fortum.ha_frontend.async_register_built_in_panel"
+            ) as mock_register_panel,
         ):
             collection = mock_collection.return_value
             collection.async_load = AsyncMock()
             collection.async_items.return_value = []
             collection.async_create_item = AsyncMock(
-                return_value={"id": "fortum-energy"}
+                return_value={
+                    "id": "fortum-energy",
+                    "url_path": "fortum-energy",
+                    "title": "Fortum",
+                    "icon": "mdi:transmission-tower",
+                    "show_in_sidebar": True,
+                    "require_admin": False,
+                    "mode": "storage",
+                }
             )
 
             await _async_ensure_dashboard_strategy_dashboard(mock_hass)
 
         collection.async_create_item.assert_awaited_once()
-        mock_lovelace_storage.assert_called_once_with(
+        mock_lovelace_storage.assert_any_call(
             mock_hass,
-            {"id": "fortum-energy"},
+            {
+                "id": "fortum-energy",
+                "url_path": "fortum-energy",
+                "title": "Fortum",
+                "icon": "mdi:transmission-tower",
+                "show_in_sidebar": True,
+                "require_admin": False,
+                "mode": "storage",
+            },
         )
-        dashboard_storage.async_save.assert_awaited_once_with(
-            {"strategy": {"type": "fortum-energy"}}
+        strategy_storage.async_save.assert_awaited_once_with(
+            {"strategy": {"type": "custom:fortum-energy"}}
         )
+        assert lovelace_data.dashboards["fortum-energy"] is runtime_storage
+        mock_register_panel.assert_called_once()
 
     async def test_auto_dashboard_creation_skips_existing_dashboard(self, mock_hass):
         """Auto dashboard creation should not touch existing dashboards."""
@@ -201,3 +223,46 @@ class TestInit:
             await _async_ensure_dashboard_strategy_dashboard(mock_hass)
 
         mock_collection.assert_not_called()
+
+    async def test_auto_dashboard_creation_skips_existing_storage_dashboard(
+        self,
+        mock_hass,
+    ):
+        """Existing storage dashboard should be left untouched."""
+        lovelace_data = SimpleNamespace(
+            dashboards={},
+            yaml_dashboards={},
+            resources=Mock(),
+        )
+        mock_hass.data = {LOVELACE_DATA: lovelace_data}
+
+        with (
+            patch("custom_components.fortum.DashboardsCollection") as mock_collection,
+            patch(
+                "custom_components.fortum.LovelaceStorage",
+            ) as mock_lovelace_storage,
+            patch(
+                "custom_components.fortum.ha_frontend.async_register_built_in_panel"
+            ) as mock_register_panel,
+        ):
+            collection = mock_collection.return_value
+            collection.async_load = AsyncMock()
+            collection.async_items.return_value = [
+                {
+                    "id": "fortum-energy",
+                    "url_path": "fortum-energy",
+                    "title": "Fortum",
+                    "icon": "mdi:transmission-tower",
+                    "show_in_sidebar": True,
+                    "require_admin": False,
+                    "mode": "storage",
+                }
+            ]
+            collection.async_create_item = AsyncMock()
+
+            await _async_ensure_dashboard_strategy_dashboard(mock_hass)
+
+        collection.async_create_item.assert_not_awaited()
+        mock_lovelace_storage.assert_not_called()
+        mock_register_panel.assert_not_called()
+        assert "fortum-energy" not in lovelace_data.dashboards

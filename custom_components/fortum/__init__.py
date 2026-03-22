@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
-from inspect import isawaitable
+from inspect import isawaitable, signature
 from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.components import frontend as ha_frontend
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.components.lovelace.const import (
     CONF_REQUIRE_ADMIN,
@@ -17,6 +18,9 @@ from homeassistant.components.lovelace.const import (
     CONF_URL_PATH,
     LOVELACE_DATA,
     MODE_STORAGE,
+)
+from homeassistant.components.lovelace.const import (
+    DOMAIN as LOVELACE_DOMAIN,
 )
 from homeassistant.components.lovelace.dashboard import (
     DashboardsCollection,
@@ -66,7 +70,7 @@ _DASHBOARD_STRATEGY_URL = f"/fortum-energy/{_DASHBOARD_STRATEGY_FILE}"
 _DASHBOARD_URL_PATH = "fortum-energy"
 _DASHBOARD_TITLE = "Fortum"
 _DASHBOARD_ICON = "mdi:transmission-tower"
-_DASHBOARD_STRATEGY_TYPE = "fortum-energy"
+_DASHBOARD_STRATEGY_TYPE = "custom:fortum-energy"
 _DASHBOARD_STATIC_REGISTERED_KEY = f"{DOMAIN}_dashboard_static_registered"
 _DASHBOARD_RESOURCE_REGISTERED_KEY = f"{DOMAIN}_dashboard_resource_registered"
 _DASHBOARD_CREATE_REGISTERED_KEY = f"{DOMAIN}_dashboard_create_registered"
@@ -488,10 +492,10 @@ async def _async_ensure_dashboard_strategy_dashboard(hass: HomeAssistant) -> Non
 
     dashboards_collection = DashboardsCollection(hass)
     await dashboards_collection.async_load()
-    if any(
-        item.get(CONF_URL_PATH) == _DASHBOARD_URL_PATH
-        for item in dashboards_collection.async_items()
-    ):
+    for item in dashboards_collection.async_items():
+        if item.get(CONF_URL_PATH) != _DASHBOARD_URL_PATH:
+            continue
+
         _LOGGER.debug(
             "Fortum dashboard entry for /%s already exists; skipping auto-creation",
             _DASHBOARD_URL_PATH,
@@ -511,10 +515,48 @@ async def _async_ensure_dashboard_strategy_dashboard(hass: HomeAssistant) -> Non
 
     dashboard_config = LovelaceStorage(hass, created_dashboard)
     await dashboard_config.async_save({"strategy": {"type": _DASHBOARD_STRATEGY_TYPE}})
+    _register_created_dashboard_runtime(hass, lovelace_data, created_dashboard)
     _LOGGER.info(
         "Created Fortum dashboard at /%s using strategy '%s'",
         _DASHBOARD_URL_PATH,
         _DASHBOARD_STRATEGY_TYPE,
+    )
+
+
+def _register_created_dashboard_runtime(
+    hass: HomeAssistant,
+    lovelace_data: Any,
+    dashboard_item: dict[str, Any],
+) -> None:
+    """Register a created storage dashboard in Lovelace runtime state."""
+    url_path = dashboard_item[CONF_URL_PATH]
+    existing = lovelace_data.dashboards.get(url_path)
+    update = existing is not None
+
+    if not update:
+        lovelace_data.dashboards[url_path] = LovelaceStorage(hass, dashboard_item)
+    else:
+        existing.config = dashboard_item
+
+    panel_kwargs: dict[str, Any] = {
+        "frontend_url_path": url_path,
+        "require_admin": dashboard_item[CONF_REQUIRE_ADMIN],
+        "sidebar_title": dashboard_item[CONF_TITLE],
+        "sidebar_icon": dashboard_item.get(CONF_ICON, "mdi:view-dashboard"),
+        "config": {"mode": MODE_STORAGE},
+        "update": update,
+    }
+    show_in_sidebar = dashboard_item[CONF_SHOW_IN_SIDEBAR]
+    panel_signature = signature(ha_frontend.async_register_built_in_panel)
+    if "show_in_sidebar" in panel_signature.parameters:
+        panel_kwargs["show_in_sidebar"] = show_in_sidebar
+    elif "sidebar_default_visible" in panel_signature.parameters:
+        panel_kwargs["sidebar_default_visible"] = show_in_sidebar
+
+    ha_frontend.async_register_built_in_panel(
+        hass,
+        LOVELACE_DOMAIN,
+        **panel_kwargs,
     )
 
 
