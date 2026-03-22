@@ -2588,6 +2588,14 @@ class MyEnergyFuturePriceCard extends HTMLElement {
           text-transform: uppercase;
           white-space: nowrap;
         }
+        .now-indicator-time {
+          display: block;
+          margin-top: 2px;
+          font-size: var(--ha-font-size-2xs);
+          font-weight: 500;
+          letter-spacing: 0.02em;
+          text-transform: none;
+        }
         .day-shade-label {
           position: absolute;
           top: 50%;
@@ -2672,7 +2680,7 @@ class MyEnergyFuturePriceCard extends HTMLElement {
               <span class="day-shade-label">Tomorrow</span>
             </div>
             <div id="now-indicator" class="now-indicator">
-              <span class="now-indicator-label">Now</span>
+              <span class="now-indicator-label">Now<span id="now-indicator-time" class="now-indicator-time"></span></span>
             </div>
           </div>
           <div id="empty" class="empty" style="display:none;">No data</div>
@@ -2945,6 +2953,7 @@ class MyEnergyFuturePriceCard extends HTMLElement {
     const todayShadeEl = this.shadowRoot?.querySelector("#today-shade");
     const tomorrowShadeEl = this.shadowRoot?.querySelector("#tomorrow-shade");
     const nowIndicatorEl = this.shadowRoot?.querySelector("#now-indicator");
+    const nowIndicatorTimeEl = this.shadowRoot?.querySelector("#now-indicator-time");
     if (!todayShadeEl || !tomorrowShadeEl || !nowIndicatorEl) {
       return;
     }
@@ -3027,6 +3036,9 @@ class MyEnergyFuturePriceCard extends HTMLElement {
         nowIndicatorEl.style.left = `${clampedNowX}px`;
         nowIndicatorEl.style.top = `${rect.y}px`;
         nowIndicatorEl.style.height = `${rect.height}px`;
+        if (nowIndicatorTimeEl) {
+          nowIndicatorTimeEl.textContent = this._formatClock(nowMs);
+        }
       } else {
         nowIndicatorEl.style.display = "none";
       }
