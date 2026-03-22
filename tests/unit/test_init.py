@@ -8,6 +8,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
 from custom_components.fortum import (
     _apply_debug_logging,
+    _async_register_dashboard_strategy_static_path,
     async_setup_entry,
     async_unload_entry,
 )
@@ -130,3 +131,20 @@ class TestInit:
             _apply_debug_logging(entry)
 
         logger.setLevel.assert_called_once_with(logging.DEBUG)
+
+    async def test_static_strategy_registration_awaits_http(self, mock_hass, tmp_path):
+        """Static strategy registration should await HTTP path setup."""
+        strategy_path = tmp_path / "fortum-energy-strategy.js"
+        strategy_path.write_text("export default {};", encoding="utf-8")
+
+        mock_hass.data = {}
+        mock_hass.http = Mock()
+        mock_hass.http.async_register_static_paths = AsyncMock()
+
+        with patch(
+            "custom_components.fortum._dashboard_strategy_path",
+            return_value=strategy_path,
+        ):
+            await _async_register_dashboard_strategy_static_path(mock_hass)
+
+        mock_hass.http.async_register_static_paths.assert_awaited_once()

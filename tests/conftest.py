@@ -21,6 +21,8 @@ def mock_hass():
     hass = MagicMock(spec=HomeAssistant)
     hass.data = {}
     hass.states = MagicMock()
+    hass.config = MagicMock()
+    hass.config.components = set()
     hass.config_entries = MagicMock()
     hass.config_entries._entries = {}
     hass.config_entries.async_setup = AsyncMock(return_value=True)

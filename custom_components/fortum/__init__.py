@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from inspect import isawaitable
 from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, Any
@@ -17,6 +18,7 @@ from homeassistant.const import (
     EVENT_HOMEASSISTANT_STARTED,
 )
 from homeassistant.core import callback
+from homeassistant.setup import async_when_setup
 
 from .api import FortumAPIClient, OAuth2AuthClient
 
@@ -363,7 +365,7 @@ async def _async_register_dashboard_strategy_static_path(hass: HomeAssistant) ->
         )
         return
 
-    http_component.async_register_static_paths(
+    register_result = http_component.async_register_static_paths(
         [
             StaticPathConfig(
                 _DASHBOARD_STRATEGY_URL,
@@ -372,6 +374,9 @@ async def _async_register_dashboard_strategy_static_path(hass: HomeAssistant) ->
             )
         ]
     )
+    if isawaitable(register_result):
+        await register_result
+
     hass.data[_DASHBOARD_STATIC_REGISTERED_KEY] = True
     _LOGGER.debug(
         "Registered dashboard strategy static path at %s", _DASHBOARD_STRATEGY_URL
@@ -380,19 +385,33 @@ async def _async_register_dashboard_strategy_static_path(hass: HomeAssistant) ->
 
 def _schedule_dashboard_strategy_resource_registration(hass: HomeAssistant) -> None:
     """Schedule Lovelace resource registration for dashboard strategy."""
-
-    async def _async_register_resource(_event: Any | None = None) -> None:
-        await _async_ensure_dashboard_strategy_lovelace_resource(hass)
-
-    if hass.is_running:
-        hass.async_create_task(_async_register_resource())
-        return
-
     if hass.data.get(_DASHBOARD_RESOURCE_REGISTERED_KEY):
         return
 
     hass.data[_DASHBOARD_RESOURCE_REGISTERED_KEY] = True
-    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _async_register_resource)
+
+    async def _async_register_resource(_hass: HomeAssistant, _component: str) -> None:
+        await _async_ensure_dashboard_strategy_lovelace_resource(hass)
+
+    async def _async_register_resource_from_event(_event: Any | None = None) -> None:
+        await _async_ensure_dashboard_strategy_lovelace_resource(hass)
+
+    config = getattr(hass, "config", None)
+    if config is None or not hasattr(config, "components"):
+        _LOGGER.debug(
+            "Home Assistant config.components unavailable; "
+            "falling back to startup event"
+        )
+        if hass.is_running:
+            hass.async_create_task(_async_register_resource_from_event())
+        else:
+            hass.bus.async_listen_once(
+                EVENT_HOMEASSISTANT_STARTED,
+                _async_register_resource_from_event,
+            )
+        return
+
+    async_when_setup(hass, "lovelace", _async_register_resource)
 
 
 async def _async_ensure_dashboard_strategy_lovelace_resource(
@@ -406,8 +425,8 @@ async def _async_ensure_dashboard_strategy_lovelace_resource(
 
     resources = lovelace_data.resources
     if not isinstance(resources, ResourceStorageCollection):
-        _LOGGER.debug(
-            "Lovelace resources use YAML mode; cannot auto-add %s",
+        _LOGGER.info(
+            "Lovelace resources use YAML mode; add manual resource url=%s type=module",
             _DASHBOARD_STRATEGY_URL,
         )
         return
