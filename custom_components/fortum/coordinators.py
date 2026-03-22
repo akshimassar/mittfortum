@@ -6,10 +6,11 @@ import logging
 from datetime import datetime, timedelta  # noqa: TC003
 from typing import TYPE_CHECKING
 
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DEFAULT_UPDATE_INTERVAL, PRICE_UPDATE_INTERVAL
-from .exceptions import APIError
+from .exceptions import APIError, AuthenticationError
 from .models import ConsumptionData, SpotPricePoint
 
 if TYPE_CHECKING:
@@ -85,6 +86,11 @@ class HourlyConsumptionSyncCoordinator(DataUpdateCoordinator[list[ConsumptionDat
                 "HourlyConsumptionSyncCoordinator._async_update_data: API error"
             )
             raise UpdateFailed(f"API error: {exc}") from exc
+        except AuthenticationError as exc:
+            _LOGGER.exception(
+                "HourlyConsumptionSyncCoordinator._async_update_data: auth error"
+            )
+            raise ConfigEntryAuthFailed("Authentication failed") from exc
         except Exception as exc:
             _LOGGER.exception(
                 "HourlyConsumptionSyncCoordinator._async_update_data: unexpected error"
@@ -123,6 +129,9 @@ class SpotPriceSyncCoordinator(DataUpdateCoordinator[list[SpotPricePoint]]):
                 "SpotPriceSyncCoordinator._async_update_data: fetched_records=%d",
                 len(data),
             )
+        except AuthenticationError as exc:
+            _LOGGER.exception("SpotPriceSyncCoordinator._async_update_data: auth error")
+            raise ConfigEntryAuthFailed("Authentication failed") from exc
         except APIError as exc:
             _LOGGER.exception("SpotPriceSyncCoordinator._async_update_data: API error")
             raise UpdateFailed(f"API error: {exc}") from exc

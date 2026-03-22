@@ -190,7 +190,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        hass.data[DOMAIN].pop(entry.entry_id)
+        entry_data = hass.data[DOMAIN].pop(entry.entry_id)
+        api_client = (
+            entry_data.get("api_client") if isinstance(entry_data, dict) else None
+        )
+        auth_client = getattr(api_client, "_auth_client", None)  # noqa: SLF001
+        stop_monitor = getattr(auth_client, "stop_token_renewal_scheduler", None)
+        if callable(stop_monitor):
+            stop_result = stop_monitor()
+            if isawaitable(stop_result):
+                await stop_result
 
     return unload_ok
 

@@ -27,7 +27,12 @@ from ..const import (
     PRICE_RESOLUTIONS,
     get_currency_for_region,
 )
-from ..exceptions import APIError, InvalidResponseError, UnexpectedStatusCodeError
+from ..exceptions import (
+    APIError,
+    AuthenticationError,
+    InvalidResponseError,
+    UnexpectedStatusCodeError,
+)
 from ..models import CustomerDetails, MeteringPoint, SpotPricePoint, TimeSeries
 from .endpoints import APIEndpoints
 
@@ -42,8 +47,6 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Constants for error messages
-TOKEN_EXPIRED_RETRY_MSG = "Token expired - retry required"
 MAX_FULL_BACKFILL_STEPS = 104
 CLEAR_STATISTICS_TIMEOUT_SECONDS = 60
 TIME_SERIES_RETRY_DELAYS = (1.0, 2.0, 4.0)
@@ -1295,21 +1298,9 @@ class FortumAPIClient:
     async def _get(
         self,
         url: str,
-        retry_count: int = 0,
         request_timeout: float | None = None,
     ) -> Any:
-        """Perform authenticated GET request with retry logic."""
-        # Allow maximum retries based on auth type:
-        # - Session-based: 5 total attempts (4 retries)
-        # - OAuth tokens: 2 total attempts (1 retry)
-        is_session_based = self._auth_client.refresh_token == "session_based"
-        max_retries = 5 if is_session_based else 2
-
-        if retry_count >= max_retries:
-            raise APIError(f"Maximum retry attempts ({max_retries}) exceeded for {url}")
-
-        await self._ensure_valid_token()
-
+        """Perform authenticated GET request."""
         async with get_async_client(self._hass) as client:
             # Add session cookies if available
             if self._auth_client.session_cookies:
@@ -1356,75 +1347,11 @@ class FortumAPIClient:
                 response = await client.get(url, **request_kwargs)
                 return await self._handle_response(response)
             except APIError as exc:
-                return await self._handle_retry_logic(
-                    exc,
-                    url,
-                    retry_count,
-                    max_retries,
-                    request_timeout,
-                )
+                _LOGGER.debug("API error from GET %s: %s", url, exc)
+                raise
             except Exception as exc:
                 _LOGGER.exception("GET request failed for %s", url)
                 raise APIError("GET request failed") from exc
-
-    async def _handle_retry_logic(
-        self,
-        exc: APIError,
-        url: str,
-        retry_count: int,
-        _max_retries: int,
-        request_timeout: float | None,
-    ) -> Any:
-        """Handle retry logic for API errors."""
-        # Check if this is a token expiration that can be retried
-        # Allow up to 4 retries for session-based auth, 1 retry for OAuth tokens
-        # Increased from 3 to 4 retries for session-based auth due to
-        # session propagation delays
-        is_session_based = self._auth_client.refresh_token == "session_based"
-        max_retries_for_token_error = 4 if is_session_based else 1
-
-        if (
-            str(exc) == TOKEN_EXPIRED_RETRY_MSG
-            and retry_count < max_retries_for_token_error
-        ):
-            # Calculate progressive delay for session propagation
-            # Use much longer delays for session-based auth due to
-            # server-side propagation time
-            if is_session_based:
-                # Progressive delays: 5s, 10s, 15s, 20s (total ~50s)
-                # This accounts for session propagation across different API endpoints
-                delay = 5.0 + (retry_count * 5.0)
-            else:
-                # Standard exponential backoff for OAuth tokens
-                delay = 0.1 * (2**retry_count)
-
-            _LOGGER.info(
-                "Token was refreshed, retrying request to %s "
-                "(attempt %d/%d) after %ss delay",
-                url,
-                retry_count + 1,
-                max_retries_for_token_error,
-                delay,
-            )
-
-            # Add delay for session propagation with exponential backoff
-            _LOGGER.debug("Adding %s second delay for session propagation", delay)
-            await asyncio.sleep(delay)
-
-            # Retry the request with the refreshed token
-            return await self._get(
-                url,
-                retry_count + 1,
-                request_timeout=request_timeout,
-            )
-        elif "Authentication failed" in str(exc):
-            # If authentication completely failed, don't retry
-            _LOGGER.error("Authentication failed, cannot retry: %s", exc)
-            raise
-        else:
-            # Re-raise APIError without wrapping it
-            _LOGGER.debug("API error (no retry): %s", exc)
-            raise
 
     async def _parse_trpc_response(self, response: Any) -> Any:
         """Parse tRPC response format."""
@@ -1452,41 +1379,9 @@ class FortumAPIClient:
         location = response.headers.get("Location", "")
         _LOGGER.debug("Received 307 redirect response")
 
-        # Check if this is a session expiration redirect
-        if "sign-out" in location and "TokenExpired" in location:
-            _LOGGER.warning("Session expired - TokenExpired redirect detected")
-            # For session-based auth, we need to re-authenticate completely
-            # Signal retry by raising specific exception
-            raise APIError(TOKEN_EXPIRED_RETRY_MSG)
-
         # Handle other redirects
         _LOGGER.warning("Unexpected redirect response from API")
         raise APIError(f"Unexpected redirect to: {location}")
-
-    async def _handle_unauthorized_response(self) -> None:
-        """Handle 401 unauthorized responses."""
-        _LOGGER.info("Token expired (401), attempting refresh")
-        try:
-            await self._auth_client.refresh_access_token()
-            _LOGGER.debug("Token refresh completed successfully")
-
-            # Signal retry by raising specific exception
-            raise APIError(TOKEN_EXPIRED_RETRY_MSG)
-        except APIError as api_exc:
-            # If this is our retry signal, re-raise it
-            if TOKEN_EXPIRED_RETRY_MSG in str(api_exc):
-                raise
-            # Otherwise it's a real refresh failure
-            _LOGGER.error("Token refresh failed: %s", api_exc)
-            raise APIError(
-                "Authentication failed - re-authentication required"
-            ) from api_exc
-        except Exception as refresh_exc:
-            _LOGGER.error("Token refresh failed: %s", refresh_exc)
-            # If refresh fails, we need to re-authenticate
-            raise APIError(
-                "Authentication failed - re-authentication required"
-            ) from refresh_exc
 
     def _handle_server_error_response(self, response) -> None:
         """Handle 500 server error responses."""
@@ -1531,7 +1426,8 @@ class FortumAPIClient:
         if response.status_code == 307:
             self._handle_redirect_response(response)
         elif response.status_code == 401:
-            await self._handle_unauthorized_response()
+            _LOGGER.warning("Request unauthorized (401)")
+            raise AuthenticationError("Unauthorized (401)")
         elif response.status_code == 403:
             _LOGGER.warning("Access forbidden, may need re-authentication")
             raise APIError("Access forbidden - authentication may be required")
@@ -1551,48 +1447,6 @@ class FortumAPIClient:
             raise InvalidResponseError("Empty response from API")
 
         return response
-
-    async def _ensure_valid_token(self, proactive: bool = True) -> None:
-        """Ensure we have a valid access token.
-
-        Args:
-            proactive: If True, renew tokens before they expire (recommended).
-                      If False, only renew after expiry (legacy behavior).
-        """
-        # Check if token needs renewal (proactive by default with 5-minute buffer)
-        if proactive and self._auth_client.needs_renewal():
-            _LOGGER.debug("Token needs proactive renewal (expires within 5 minutes)")
-            needs_refresh = True
-        elif self._auth_client.is_token_expired():
-            _LOGGER.debug("Token is expired, requires immediate renewal")
-            needs_refresh = True
-        else:
-            needs_refresh = False
-
-        if needs_refresh:
-            # Check if we have a real OAuth2 refresh token or session-based token
-            if (
-                self._auth_client.refresh_token
-                and self._auth_client.refresh_token != "session_based"
-            ):
-                _LOGGER.debug("Refreshing OAuth2 access token")
-                try:
-                    await self._auth_client.refresh_access_token()
-                    _LOGGER.info("Successfully refreshed OAuth2 access token")
-                except Exception as exc:
-                    _LOGGER.warning(
-                        "OAuth2 token refresh failed, falling back to full "
-                        "authentication: %s",
-                        exc,
-                    )
-                    await self._auth_client.authenticate()
-            else:
-                # For session-based auth or no refresh token, re-authenticate
-                _LOGGER.debug(
-                    "Performing full re-authentication for session-based tokens"
-                )
-                await self._auth_client.authenticate()
-                _LOGGER.info("Successfully re-authenticated session-based tokens")
 
     async def test_connection(self) -> dict[str, Any]:
         """Test API connection and return status information."""

@@ -12,7 +12,7 @@ from custom_components.fortum.api.client import (
     FortumAPIClient,
 )
 from custom_components.fortum.const import HOURLY_DATA_REQUEST_TIMEOUT_SECONDS
-from custom_components.fortum.exceptions import APIError
+from custom_components.fortum.exceptions import APIError, AuthenticationError
 from custom_components.fortum.models import (
     CostDataPoint,
     CustomerDetails,
@@ -350,60 +350,6 @@ class TestFortumAPIClient:
             client._record_price_forecast_statistics(updated_price_data)
             assert mock_add_stats.call_count == 2
 
-    async def test_ensure_valid_token_session_based(self, mock_hass, mock_auth_client):
-        """Test _ensure_valid_token with session-based token."""
-        client = FortumAPIClient(mock_hass, mock_auth_client)
-
-        # Mock token as expired and session-based
-        mock_auth_client.is_token_expired.return_value = True
-        mock_auth_client.refresh_token = "session_based"
-
-        with patch.object(mock_auth_client, "authenticate") as mock_auth:
-            await client._ensure_valid_token()
-            mock_auth.assert_called_once()
-
-    async def test_ensure_valid_token_real_refresh_token(
-        self, mock_hass, mock_auth_client
-    ):
-        """Test _ensure_valid_token with real OAuth2 refresh token."""
-        client = FortumAPIClient(mock_hass, mock_auth_client)
-
-        # Mock token as expired with real refresh token
-        mock_auth_client.is_token_expired.return_value = True
-        mock_auth_client.refresh_token = "real_refresh_token"
-
-        with patch.object(mock_auth_client, "refresh_access_token") as mock_refresh:
-            await client._ensure_valid_token()
-            mock_refresh.assert_called_once()
-
-    async def test_ensure_valid_token_not_expired(self, mock_hass, mock_auth_client):
-        """Test _ensure_valid_token with valid token."""
-        client = FortumAPIClient(mock_hass, mock_auth_client)
-
-        # Mock token as not expired and not needing renewal
-        mock_auth_client.is_token_expired.return_value = False
-        mock_auth_client.needs_renewal.return_value = False
-
-        with patch.object(mock_auth_client, "authenticate") as mock_auth:
-            with patch.object(mock_auth_client, "refresh_access_token") as mock_refresh:
-                await client._ensure_valid_token()
-                mock_auth.assert_not_called()
-                mock_refresh.assert_not_called()
-
-    async def test_ensure_valid_token_no_refresh_token(
-        self, mock_hass, mock_auth_client
-    ):
-        """Test _ensure_valid_token with no refresh token."""
-        client = FortumAPIClient(mock_hass, mock_auth_client)
-
-        # Mock token as expired with no refresh token
-        mock_auth_client.is_token_expired.return_value = True
-        mock_auth_client.refresh_token = None
-
-        with patch.object(mock_auth_client, "authenticate") as mock_auth:
-            await client._ensure_valid_token()
-            mock_auth.assert_called_once()
-
     async def test_trpc_endpoints_exclude_auth_headers(
         self, mock_hass, mock_auth_client
     ):
@@ -622,44 +568,34 @@ class TestFortumAPIClient:
             assert "Authorization" in headers
             assert headers["Authorization"] == "Bearer test_access_token_123"
 
-    async def test_retry_logic_prevents_infinite_loop(
+    async def test_get_propagates_api_error_without_retry(
         self, mock_hass, mock_auth_client
     ):
-        """Test that retry logic allows exactly 1 retry and prevents infinite loops."""
+        """GET should propagate APIError without token-specific retries."""
         mock_auth_client.access_token = "test_access_token_123"
         mock_auth_client.session_cookies = {"sessionid": "test_session"}
         mock_auth_client.is_token_expired.return_value = False
-        mock_auth_client.refresh_access_token = AsyncMock()
 
         client = FortumAPIClient(mock_hass, mock_auth_client)
 
-        call_count = 0
-
-        # Mock the _handle_response method to always raise TOKEN_EXPIRED_RETRY_MSG
         async def mock_handle_response(response):
-            nonlocal call_count
-            call_count += 1
-            # Always simulate token expiry to test retry logic
-            raise APIError("Token expired - retry required")
+            raise APIError("some api error")
 
         with patch.object(client, "_handle_response", side_effect=mock_handle_response):
             with patch(
-                "homeassistant.helpers.httpx_client.get_async_client"
+                "custom_components.fortum.api.client.get_async_client"
             ) as mock_get_client:
                 mock_client = AsyncMock()
                 mock_client.cookies = {}
                 mock_get_client.return_value.__aenter__.return_value = mock_client
                 mock_get_client.return_value.__aexit__.return_value = None
 
-                # This should fail after exactly 2 attempts (original + 1 retry)
-                with pytest.raises(APIError, match="Token expired - retry required"):
+                with pytest.raises(APIError, match="some api error"):
                     await client._get("https://www.fortum.com/se/el/api/test")
-
-                # Verify exactly 2 calls were made (no infinite loop)
-                assert call_count == 2
+                assert mock_client.get.call_count == 1
 
     async def test_session_expiration_307_redirect(self, mock_hass, mock_auth_client):
-        """Test session expiration detection via 307 redirect to TokenExpired."""
+        """Test 307 redirect handling for TokenExpired redirect."""
         client = FortumAPIClient(mock_hass, mock_auth_client)
 
         # Mock a response with 307 redirect to sign-out with TokenExpired
@@ -669,8 +605,27 @@ class TestFortumAPIClient:
             "Location": "/se/el/sign-out?loggedInMessage=TokenExpired"
         }
 
-        # Test that session expiration is properly detected
-        with pytest.raises(APIError, match="Token expired - retry required"):
+        with pytest.raises(
+            APIError,
+            match=(
+                r"Unexpected redirect to: "
+                r"/se/el/sign-out\?loggedInMessage=TokenExpired"
+            ),
+        ):
+            await client._handle_response(mock_response)
+
+    async def test_unauthorized_401_raises_authentication_error(
+        self,
+        mock_hass,
+        mock_auth_client,
+    ):
+        """401 responses should raise AuthenticationError."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        mock_response = Mock()
+        mock_response.status_code = 401
+        mock_response.text = "unauthorized"
+
+        with pytest.raises(AuthenticationError, match=r"Unauthorized \(401\)"):
             await client._handle_response(mock_response)
 
     async def test_session_expiration_307_redirect_other(
@@ -700,7 +655,13 @@ class TestFortumAPIClient:
             "Location": "/se/el/sign-out?loggedInMessage=TokenExpired"
         }
 
-        with pytest.raises(APIError, match="Token expired - retry required"):
+        with pytest.raises(
+            APIError,
+            match=(
+                r"Unexpected redirect to: "
+                r"/se/el/sign-out\?loggedInMessage=TokenExpired"
+            ),
+        ):
             client._handle_redirect_response(mock_response)
 
         # Test other redirect

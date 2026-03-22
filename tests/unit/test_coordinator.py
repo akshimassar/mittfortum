@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import frame
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
@@ -14,7 +15,7 @@ from custom_components.fortum.coordinators import (
     HourlyConsumptionSyncCoordinator,
     SpotPriceSyncCoordinator,
 )
-from custom_components.fortum.exceptions import APIError
+from custom_components.fortum.exceptions import APIError, AuthenticationError
 from custom_components.fortum.models import SpotPricePoint
 
 
@@ -111,6 +112,19 @@ class TestHourlyConsumptionSyncCoordinator:
         assert data == []
         assert coordinator.last_statistics_sync is None
 
+    async def test_async_update_data_authentication_error(
+        self,
+        coordinator,
+        mock_api_client,
+    ):
+        """Authentication errors should trigger config-entry reauth handling."""
+        mock_api_client.sync_hourly_data_all_meters.side_effect = AuthenticationError(
+            "Unauthorized (401)"
+        )
+
+        with pytest.raises(ConfigEntryAuthFailed):
+            await coordinator._async_update_data()
+
     async def test_async_clear_statistics_resets_sync_timestamp(
         self, coordinator, mock_api_client
     ):
@@ -162,3 +176,16 @@ class TestSpotPriceSyncCoordinator:
 
         data = await price_coordinator._async_update_data()
         assert data == []
+
+    async def test_async_update_data_authentication_error(
+        self,
+        price_coordinator,
+        mock_api_client,
+    ):
+        """Price coordinator should surface auth failures as reauth-required."""
+        mock_api_client.get_price_data.side_effect = AuthenticationError(
+            "Unauthorized (401)"
+        )
+
+        with pytest.raises(ConfigEntryAuthFailed):
+            await price_coordinator._async_update_data()

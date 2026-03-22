@@ -42,8 +42,10 @@ REQUEST_TIMEOUT_SECONDS = 30.0
 NETWORK_RETRY_DELAYS = (1.0, 2.0, 4.0)
 DEFAULT_TOKEN_EXPIRY_HOURS = 1  # 1 hour default expiry fallback
 FIXED_TOKEN_LIFETIME_SECONDS = 900  # 15 minutes
-URGENT_RENEWAL_THRESHOLD_SECONDS = 120  # 2 minutes - reduced for shorter tokens
 SESSION_VERIFICATION_RETRY_DELAYS = (0.5, 1.0, 2.0, 3.0)
+TOKEN_RENEWAL_RETRY_INITIAL_SECONDS = 5.0
+REAUTH_RETRY_MAX_DELAY_SECONDS = 1800.0
+INITIAL_AUTH_MAX_ATTEMPTS = 3
 
 
 class OAuth2AuthClient:
@@ -77,8 +79,9 @@ class OAuth2AuthClient:
         self._session_data: dict[str, Any] | None = None
         self._session_cookies: dict[str, str] = {}
 
-        # Background token monitoring
-        self._token_monitor_task: asyncio.Task | None = None
+        # Background token renewal scheduling
+        self._token_refresh_task: asyncio.Task | None = None
+        self._token_refresh_handle: asyncio.TimerHandle | None = None
         self._monitoring_enabled: bool = False
 
     @property
@@ -211,7 +214,14 @@ class OAuth2AuthClient:
         return effective_lifetime
 
     async def authenticate(self) -> AuthTokens:
-        """Perform complete OAuth2 authentication flow using working NextAuth flow."""
+        """Perform OAuth authentication with bounded retry backoff."""
+        return await self._authenticate_with_backoff(
+            retry_forever=False,
+            max_attempts=INITIAL_AUTH_MAX_ATTEMPTS,
+        )
+
+    async def _authenticate_once(self) -> AuthTokens:
+        """Perform a single complete OAuth2 authentication flow."""
         try:
             async with get_async_client(self._hass) as client:
                 _LOGGER.debug("Starting working OAuth flow...")
@@ -271,7 +281,7 @@ class OAuth2AuthClient:
                 self._session_data = session_data
 
                 # Start background token monitoring for proactive renewal
-                self.start_token_monitoring()
+                self.start_token_renewal_scheduler()
 
                 return self._tokens
 
@@ -285,6 +295,50 @@ class OAuth2AuthClient:
         except Exception as exc:
             _LOGGER.exception("Authentication failed")
             raise AuthenticationError(f"Authentication failed: {exc}") from exc
+
+    def _is_unauthorized_error(self, exc: Exception) -> bool:
+        """Return True if exception indicates unauthorized credentials (401)."""
+        message = str(exc).lower()
+        return "401" in message or "unauthorized" in message
+
+    async def _authenticate_with_backoff(
+        self,
+        *,
+        retry_forever: bool,
+        stop_on_unauthorized: bool = True,
+        max_attempts: int | None = None,
+    ) -> AuthTokens:
+        """Authenticate with exponential backoff and optional attempt cap."""
+        attempts = 0
+        delay = TOKEN_RENEWAL_RETRY_INITIAL_SECONDS
+
+        while True:
+            attempts += 1
+            try:
+                return await self._authenticate_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if self._is_unauthorized_error(exc):
+                    _LOGGER.warning("Authentication unauthorized (401)")
+                    if stop_on_unauthorized:
+                        raise AuthenticationError("Unauthorized (401)") from exc
+
+                if (
+                    not retry_forever
+                    and max_attempts is not None
+                    and attempts >= max_attempts
+                ):
+                    raise
+
+                sleep_for = min(delay, REAUTH_RETRY_MAX_DELAY_SECONDS)
+                _LOGGER.warning(
+                    "Authentication attempt failed: %s. Retrying in %.1fs",
+                    exc,
+                    sleep_for,
+                )
+                await asyncio.sleep(sleep_for)
+                delay = min(delay * 2, REAUTH_RETRY_MAX_DELAY_SECONDS)
 
     async def _request_with_retry(self, client, method: str, url: str, **kwargs):
         """Perform an HTTP request with timeout and network retries."""
@@ -631,6 +685,9 @@ class OAuth2AuthClient:
                 )
 
                 if response.status_code != 200:
+                    if response.status_code == 401:
+                        raise AuthenticationError("Unauthorized (401)")
+
                     _LOGGER.error(
                         "Token refresh failed with status %d: %s",
                         response.status_code,
@@ -650,10 +707,12 @@ class OAuth2AuthClient:
                 _LOGGER.debug("Successfully refreshed access token")
 
                 # Restart token monitoring with new expiry time
-                self.start_token_monitoring()
+                self.start_token_renewal_scheduler()
 
                 return self._tokens
 
+        except AuthenticationError:
+            raise
         except Exception as exc:
             _LOGGER.exception("Token refresh failed")
             raise AuthenticationError(f"Token refresh failed: {exc}") from exc
@@ -947,110 +1006,119 @@ class OAuth2AuthClient:
                 f"Cannot parse datetime string '{expires_str}': {exc}"
             ) from exc
 
-    def start_token_monitoring(self) -> None:
-        """Start background token monitoring for proactive renewal."""
-        if self._monitoring_enabled and self._token_monitor_task:
-            return  # Already running
-
+    def start_token_renewal_scheduler(self) -> None:
+        """Start one-shot token renewal scheduling."""
         self._monitoring_enabled = True
-        self._token_monitor_task = asyncio.create_task(self._monitor_token_expiry())
-        _LOGGER.debug("Started background token monitoring")
+        self._schedule_next_token_refresh()
+        _LOGGER.debug("Started token renewal scheduling")
 
-    async def stop_token_monitoring(self) -> None:
-        """Stop background token monitoring."""
+    async def stop_token_renewal_scheduler(self) -> None:
+        """Stop token renewal scheduling and active refresh task."""
         self._monitoring_enabled = False
-        if self._token_monitor_task and not self._token_monitor_task.done():
-            self._token_monitor_task.cancel()
+        if self._token_refresh_handle is not None:
+            self._token_refresh_handle.cancel()
+            self._token_refresh_handle = None
+
+        if self._token_refresh_task and not self._token_refresh_task.done():
+            self._token_refresh_task.cancel()
             try:
-                await self._token_monitor_task
+                await self._token_refresh_task
             except asyncio.CancelledError:
                 pass
-        self._token_monitor_task = None
-        _LOGGER.debug("Stopped background token monitoring")
+        self._token_refresh_task = None
+        _LOGGER.debug("Stopped token renewal scheduling")
 
-    def _should_renew_token(self) -> tuple[bool, bool]:
-        """Check if token should be renewed and if it's urgent.
-
-        Returns:
-            Tuple of (should_renew, is_urgent)
-        """
+    def _calculate_refresh_delay(self) -> float:
+        """Calculate one-shot delay until proactive token renewal."""
         if not self._tokens or not self._token_expiry:
-            return False, False
+            return 15.0
 
-        time_until_expiry = self.time_until_expiry()
-        renewal_buffer = self._renewal_buffer_seconds()
+        ttl_seconds = self.time_until_expiry()
+        renewal_buffer = float(self._renewal_buffer_seconds())
+        return max(1.0, ttl_seconds - renewal_buffer)
 
-        # Check if renewal is needed (buffer based on token TTL)
-        if time_until_expiry <= renewal_buffer:
-            is_urgent = time_until_expiry <= URGENT_RENEWAL_THRESHOLD_SECONDS
-            return True, is_urgent
+    def _schedule_next_token_refresh(self) -> None:
+        """Schedule the next proactive refresh as a one-shot callback."""
+        if not self._monitoring_enabled:
+            return
 
-        return False, False
+        if self._token_refresh_handle is not None:
+            self._token_refresh_handle.cancel()
+            self._token_refresh_handle = None
 
-    async def _perform_proactive_renewal(self, is_urgent: bool) -> bool:
-        """Perform proactive token renewal.
+        delay = self._calculate_refresh_delay()
+        loop = getattr(self._hass, "loop", None) or asyncio.get_running_loop()
+        self._token_refresh_handle = loop.call_later(
+            delay,
+            self._start_scheduled_refresh,
+        )
+        _LOGGER.debug("Scheduled token renewal in %.1fs", delay)
 
-        Args:
-            is_urgent: Whether this is an urgent renewal
+    def _start_scheduled_refresh(self) -> None:
+        """Start scheduled token refresh task."""
+        self._token_refresh_handle = None
+        if not self._monitoring_enabled:
+            return
 
-        Returns:
-            True if renewal was successful, False otherwise
-        """
-        time_until_expiry = self.time_until_expiry()
+        if self._token_refresh_task and not self._token_refresh_task.done():
+            return
 
-        if is_urgent:
-            _LOGGER.info(
-                "Token expires in %.1f minutes, performing immediate renewal",
-                time_until_expiry / 60,
-            )
-        else:
-            _LOGGER.debug(
-                "Token expires in %.1f minutes, will monitor for renewal",
-                time_until_expiry / 60,
-            )
-            return True  # No action needed yet
+        self._token_refresh_task = asyncio.create_task(self._run_scheduled_refresh())
 
+    async def _run_scheduled_refresh(self) -> None:
+        """Refresh token with expiry-limited retries, then re-auth if needed."""
         try:
-            await self.refresh_access_token()
-            _LOGGER.info("Proactive token renewal successful")
-            return True
-        except Exception as exc:
-            _LOGGER.error("Proactive token renewal failed: %s", exc)
-            return False
+            refresh_delay = TOKEN_RENEWAL_RETRY_INITIAL_SECONDS
 
-    def _calculate_check_interval(self) -> int:
-        """Calculate the next check interval in seconds."""
-        if not self._tokens or not self._token_expiry:
-            return 120  # 2 minutes if no token
+            while self._monitoring_enabled and self.time_until_expiry() > 0:
+                try:
+                    await self.refresh_access_token()
+                    _LOGGER.info("Proactive token renewal successful")
+                    return
+                except asyncio.CancelledError:
+                    raise
+                except AuthenticationError as exc:
+                    if self._is_unauthorized_error(exc):
+                        _LOGGER.warning(
+                            "Token refresh unauthorized (401); switching to re-auth"
+                        )
+                        break
 
-        time_until_expiry = self.time_until_expiry()
-        renewal_buffer = self._renewal_buffer_seconds()
-        # Check more frequently close to the renewal window.
-        return min(60, max(15, int(time_until_expiry - renewal_buffer)))
+                    remaining = self.time_until_expiry()
+                    if remaining <= 0:
+                        break
+                    sleep_for = min(refresh_delay, remaining)
+                    _LOGGER.warning(
+                        "Proactive token refresh failed: %s. Retrying in %.1fs "
+                        "(token expires in %.1fs)",
+                        exc,
+                        sleep_for,
+                        remaining,
+                    )
+                    await asyncio.sleep(sleep_for)
+                    refresh_delay *= 2
+                except Exception as exc:
+                    remaining = self.time_until_expiry()
+                    if remaining <= 0:
+                        break
+                    sleep_for = min(refresh_delay, remaining)
+                    _LOGGER.warning(
+                        "Proactive token refresh failed: %s. Retrying in %.1fs "
+                        "(token expires in %.1fs)",
+                        exc,
+                        sleep_for,
+                        remaining,
+                    )
+                    await asyncio.sleep(sleep_for)
+                    refresh_delay *= 2
 
-    async def _monitor_token_expiry(self) -> None:
-        """Background task to monitor token expiry and proactively renew tokens."""
-        _LOGGER.debug("Token monitoring task started")
-
-        while self._monitoring_enabled:
-            try:
-                should_renew, is_urgent = self._should_renew_token()
-
-                if should_renew:
-                    success = await self._perform_proactive_renewal(is_urgent)
-                    if not success and is_urgent:
-                        # Wait before retrying if urgent renewal failed
-                        await asyncio.sleep(30)
-                        continue
-
-                # Calculate next check interval and sleep
-                check_interval = self._calculate_check_interval()
-                await asyncio.sleep(check_interval)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as exc:
-                _LOGGER.exception("Error in token monitoring task: %s", exc)
-                await asyncio.sleep(60)  # Wait before retrying
-
-        _LOGGER.debug("Token monitoring task stopped")
+            await self._authenticate_with_backoff(
+                retry_forever=True,
+                stop_on_unauthorized=False,
+            )
+            _LOGGER.info("Token re-authentication successful")
+            return
+        except asyncio.CancelledError:
+            raise
+        finally:
+            self._token_refresh_task = None

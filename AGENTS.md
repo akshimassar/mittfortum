@@ -42,6 +42,7 @@ Guidance for AI/code agents working in this repository.
 ## Fix Quality
 - Prefer root-cause fixes over symptom-level timing/retry workarounds.
 - If a temporary workaround is unavoidable, mark it clearly and follow up with a root-cause fix.
+- If internal behavior changes materially, rename methods/functions to match new semantics (avoid stale names that describe old behavior).
 
 ## Validation
 - Required baseline checks:

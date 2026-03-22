@@ -138,20 +138,44 @@ class TestOAuth2AuthClient:
 
     async def test_authenticate_failure(self, mock_hass):
         """Test authentication failure."""
-        # Set up mock_hass.data for get_async_client
-        mock_hass.data = {}
-
         client = OAuth2AuthClient(
             hass=mock_hass,
             username="test@example.com",
             password="test_password",
         )
 
-        with patch.object(
-            client, "_initialize_fortum_session", side_effect=Exception("Test error")
+        with (
+            patch.object(
+                client,
+                "_authenticate_once",
+                side_effect=AuthenticationError("Test error"),
+            ),
+            patch("custom_components.fortum.api.auth.asyncio.sleep", new=AsyncMock()),
         ):
             with pytest.raises(AuthenticationError):
                 await client.authenticate()
+
+    async def test_authenticate_reuses_backoff_retry_logic(self, mock_hass):
+        """Initial authenticate should use same backoff retry helper."""
+        client = OAuth2AuthClient(
+            hass=mock_hass,
+            username="test@example.com",
+            password="test_password",
+        )
+
+        token = Mock()
+        token.expires_in = 3600
+        client._authenticate_once = AsyncMock(
+            side_effect=[AuthenticationError("temp"), token]
+        )
+
+        with patch(
+            "custom_components.fortum.api.auth.asyncio.sleep", new=AsyncMock()
+        ) as mock_sleep:
+            result = await client.authenticate()
+
+        assert result is token
+        mock_sleep.assert_awaited_once_with(5.0)
 
     async def test_refresh_access_token_session_based(
         self, mock_hass, sample_auth_tokens
@@ -396,3 +420,112 @@ class TestOAuth2AuthClient:
             2.0,
             3.0,
         ]
+
+    async def test_scheduler_retries_refresh_before_token_expiry(self, mock_hass):
+        """Scheduler should retry refresh with exponential backoff before expiry."""
+        client = OAuth2AuthClient(
+            hass=mock_hass,
+            username="test@example.com",
+            password="test_password",
+        )
+        client._monitoring_enabled = True
+
+        attempts = 0
+
+        async def _refresh_once_then_succeed() -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise AuthenticationError("refresh failed")
+
+        client.refresh_access_token = AsyncMock(side_effect=_refresh_once_then_succeed)
+        client.time_until_expiry = Mock(side_effect=[120.0, 120.0, 120.0])
+
+        with patch(
+            "custom_components.fortum.api.auth.asyncio.sleep",
+            new=AsyncMock(),
+        ) as mock_sleep:
+            await client._run_scheduled_refresh()
+
+        assert client.refresh_access_token.await_count == 2
+        mock_sleep.assert_awaited_once_with(5.0)
+
+    async def test_scheduler_switches_to_reauth_after_expiry(self, mock_hass):
+        """Scheduler should re-authenticate when token is already expired."""
+        client = OAuth2AuthClient(
+            hass=mock_hass,
+            username="test@example.com",
+            password="test_password",
+        )
+        client._monitoring_enabled = True
+
+        client.time_until_expiry = Mock(return_value=0.0)
+        client.refresh_access_token = AsyncMock()
+        client._authenticate_with_backoff = AsyncMock(return_value=Mock())
+
+        await client._run_scheduled_refresh()
+
+        client.refresh_access_token.assert_not_called()
+        client._authenticate_with_backoff.assert_awaited_once_with(
+            retry_forever=True,
+            stop_on_unauthorized=False,
+        )
+
+    async def test_scheduler_switches_to_reauth_on_refresh_401(self, mock_hass):
+        """Refresh 401 should immediately transition to re-auth stage."""
+        client = OAuth2AuthClient(
+            hass=mock_hass,
+            username="test@example.com",
+            password="test_password",
+        )
+        client._monitoring_enabled = True
+
+        client.time_until_expiry = Mock(return_value=120.0)
+        client.refresh_access_token = AsyncMock(
+            side_effect=AuthenticationError("Unauthorized (401)")
+        )
+        client._authenticate_with_backoff = AsyncMock(return_value=Mock())
+
+        with patch(
+            "custom_components.fortum.api.auth.asyncio.sleep", new=AsyncMock()
+        ) as mock_sleep:
+            await client._run_scheduled_refresh()
+
+        client.refresh_access_token.assert_awaited_once()
+        client._authenticate_with_backoff.assert_awaited_once_with(
+            retry_forever=True,
+            stop_on_unauthorized=False,
+        )
+        assert mock_sleep.await_count == 0
+
+    async def test_authenticate_with_backoff_caps_delay_to_30_minutes(self, mock_hass):
+        """Authentication retry helper should cap exponential backoff delay."""
+        client = OAuth2AuthClient(
+            hass=mock_hass,
+            username="test@example.com",
+            password="test_password",
+        )
+
+        reauth_attempts = {"count": 0}
+
+        async def _fail_then_succeed() -> Mock:
+            reauth_attempts["count"] += 1
+            if reauth_attempts["count"] <= 11:
+                raise AuthenticationError("reauth failed")
+            return Mock()
+
+        client._authenticate_once = AsyncMock(side_effect=_fail_then_succeed)
+
+        with patch(
+            "custom_components.fortum.api.auth.asyncio.sleep",
+            new=AsyncMock(),
+        ) as mock_sleep:
+            await client._authenticate_with_backoff(
+                retry_forever=True,
+                stop_on_unauthorized=False,
+            )
+
+        delays = [call.args[0] for call in mock_sleep.await_args_list]
+        assert delays[:6] == [5.0, 10.0, 20.0, 40.0, 80.0, 160.0]
+        assert delays[-1] == 1800.0
+        assert max(delays) == 1800.0
