@@ -48,9 +48,9 @@ Built-in energy dashboard is also supported:
 
 ### Manual Installation
 
-1. Download the latest release from the [releases page](https://github.com/akshimassar/ha-fortum/releases)
-2. Copy the `custom_components/fortum` directory to your Home Assistant `custom_components` directory
-3. Restart Home Assistant
+1. Download this repository as ZIP (Code -> Download ZIP) or clone it locally.
+2. Copy the `custom_components/fortum` directory to your Home Assistant `custom_components` directory.
+3. Restart Home Assistant.
 
 ## Configuration
 
