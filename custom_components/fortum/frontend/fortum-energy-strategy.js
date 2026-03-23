@@ -156,7 +156,7 @@ const buildSettingsView = (hass) => ({
   ],
 });
 
-const buildElectricityViewConfig = (prefs, collectionKey, hass) => {
+const buildElectricityViewConfig = (prefs, collectionKey, hass, debug = false) => {
   const view = {
     title: localize(hass, "ui.panel.energy.title.electricity", "Electricity"),
     path: "electricity",
@@ -242,6 +242,7 @@ const buildElectricityViewConfig = (prefs, collectionKey, hass) => {
     mainCards.push({
       type: "custom:fortum-energy-devices-adaptive-graph-card",
       collection_key: collectionKey,
+      debug,
       grid_options: { columns: 36 },
     });
 
@@ -271,6 +272,7 @@ class FortumEnergyDashboardStrategy extends HTMLElement {
     try {
       const collectionKey =
         config.collection_key || config.collectionKey || DEFAULT_COLLECTION_KEY;
+      const debug = config.debug === true;
       const prefs = await fetchEnergyPrefs(hass);
 
       if (!hasAnyEnergyPrefs(prefs)) {
@@ -279,7 +281,7 @@ class FortumEnergyDashboardStrategy extends HTMLElement {
 
       return {
         views: [
-          buildElectricityViewConfig(prefs, collectionKey, hass),
+          buildElectricityViewConfig(prefs, collectionKey, hass, debug),
           buildSettingsView(hass),
         ],
       };
@@ -923,25 +925,18 @@ class FortumEnergyDevicesDetailOverlayCard extends HTMLElement {
   _collectPriceByTimestamp(data) {
     const totals = {};
     const prefs = data?.prefs || EMPTY_PREFS;
-    const debug = {
-      candidates: [],
-      found: [],
-      missing: [],
-      unit: "",
-    };
     const candidateIds = [];
+    const foundIds = [];
 
     const addStat = (statId) => {
       if (!statId) {
         return;
       }
-      debug.candidates.push(statId);
       const series = this._externalPriceStats?.[statId];
       if (!series) {
-        debug.missing.push(statId);
         return;
       }
-      debug.found.push(statId);
+      foundIds.push(statId);
       series.forEach((point) => {
         if (point.change === null || point.change === undefined) {
           return;
@@ -972,23 +967,15 @@ class FortumEnergyDevicesDetailOverlayCard extends HTMLElement {
     this._ensureExternalPriceStats(uniqueCandidateIds, data);
     this._ensureExternalPriceMetadata(uniqueCandidateIds);
 
-    const foundId = debug.found[0];
+    const foundId = foundIds[0];
     const unit = foundId
       ? this._externalPriceMeta?.[foundId]?.statistics_unit_of_measurement
       : undefined;
     this._priceUnit = unit || this._priceUnit || "";
-    debug.unit = this._priceUnit;
 
-    const series = Object.keys(totals)
+    return Object.keys(totals)
       .map((ts) => [Number(ts), totals[ts]])
       .sort((a, b) => a[0] - b[0]);
-
-    this._priceDebug = {
-      ...debug,
-      points: series.length,
-    };
-
-    return series;
   }
 
   _getOverlayColor() {
@@ -1147,11 +1134,6 @@ class FortumEnergyDevicesDetailOverlayCard extends HTMLElement {
       return;
     }
 
-    this._renderOverlayDebug({
-      chartReady: !!detailCard,
-      energySources: data?.prefs?.energy_sources?.length || 0,
-    });
-
     if (!detailCard.__myEnergyOverlayPatched) {
       detailCard.__myEnergyOverlayPatched = true;
 
@@ -1253,40 +1235,13 @@ class FortumEnergyDevicesDetailOverlayCard extends HTMLElement {
     }
 
     this._applyOverlayToDetailCard(detailCard, data);
-
-    this._renderOverlayDebug({
-      chartReady: true,
-      energySources: data?.prefs?.energy_sources?.length || 0,
-      price: this._priceDebug,
-      chartSeries: Array.isArray(detailCard._chartData)
-        ? detailCard._chartData.length
-        : 0,
-    });
-  }
-
-  _renderOverlayDebug(debug) {
-    if (!debug.price) {
-      return;
-    }
-
-    const payload = {
-      chartReady: !!debug.chartReady,
-      energySources: debug.energySources || 0,
-      chartSeries: debug.chartSeries ?? "n/a",
-      pricePoints: debug.price?.points ?? 0,
-      priceUnit: debug.price?.unit || "n/a",
-      priceCandidates: debug.price?.candidates || [],
-      priceFound: debug.price?.found || [],
-      priceMissing: debug.price?.missing || [],
-    };
-
-    console.log("[fortum-energy] overlay debug", payload);
   }
 }
 
 class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
   setConfig(config) {
     this._config = config || {};
+    this._debugEnabled = this._config.debug === true;
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
     }
@@ -1866,6 +1821,206 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       }
     });
     this._seriesVisibilityInitialized = true;
+  }
+
+  _formatDebugDateTime(ts) {
+    if (!Number.isFinite(ts)) {
+      return null;
+    }
+    const date = new Date(ts);
+    return {
+      ts,
+      iso: date.toISOString(),
+      local: date.toString(),
+    };
+  }
+
+  _getSeriesEdge(seriesEntry) {
+    const points = (seriesEntry?.data || [])
+      .map((point) => {
+        if (!Array.isArray(point) || point.length < 2) {
+          return null;
+        }
+        const x = Number(point[0]);
+        const y = Number(point[1]);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return null;
+        }
+        return [x, y];
+      })
+      .filter(Boolean)
+      .sort((a, b) => a[0] - b[0]);
+
+    if (!points.length) {
+      return {
+        id: seriesEntry?.id || "",
+        name: seriesEntry?.name || "",
+        pointCount: 0,
+        nonZeroPointCount: 0,
+        xStart: null,
+        xEnd: null,
+        yMin: null,
+        yMax: null,
+        firstPoint: null,
+        lastPoint: null,
+      };
+    }
+
+    const xs = points.map((point) => point[0]);
+    const ys = points.map((point) => point[1]);
+    return {
+      id: seriesEntry?.id || "",
+      name: seriesEntry?.name || "",
+      pointCount: points.length,
+      nonZeroPointCount: ys.filter((value) => Math.abs(value) > 1e-12).length,
+      xStart: this._formatDebugDateTime(Math.min(...xs)),
+      xEnd: this._formatDebugDateTime(Math.max(...xs)),
+      yMin: Math.min(...ys),
+      yMax: Math.max(...ys),
+      firstPoint: {
+        at: this._formatDebugDateTime(points[0][0]),
+        value: points[0][1],
+      },
+      lastPoint: {
+        at: this._formatDebugDateTime(points[points.length - 1][0]),
+        value: points[points.length - 1][1],
+      },
+    };
+  }
+
+  _getOverallSeriesEdges(seriesEntries) {
+    const points = [];
+    (seriesEntries || []).forEach((entry) => {
+      (entry?.data || []).forEach((point) => {
+        if (!Array.isArray(point) || point.length < 2) {
+          return;
+        }
+        const x = Number(point[0]);
+        const y = Number(point[1]);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return;
+        }
+        points.push([x, y]);
+      });
+    });
+
+    if (!points.length) {
+      return {
+        pointCount: 0,
+        nonZeroPointCount: 0,
+        xStart: null,
+        xEnd: null,
+        yMin: null,
+        yMax: null,
+      };
+    }
+
+    const xs = points.map((point) => point[0]);
+    const ys = points.map((point) => point[1]);
+    return {
+      pointCount: points.length,
+      nonZeroPointCount: ys.filter((value) => Math.abs(value) > 1e-12).length,
+      xStart: this._formatDebugDateTime(Math.min(...xs)),
+      xEnd: this._formatDebugDateTime(Math.max(...xs)),
+      yMin: Math.min(...ys),
+      yMax: Math.max(...ys),
+    };
+  }
+
+  _buildFetchPointCounts(ids, rawStats) {
+    return (ids || []).map((id) => ({
+      id,
+      points: Array.isArray(rawStats?.[id]) ? rawStats[id].length : 0,
+    }));
+  }
+
+  _logAdaptiveGraphDebug({
+    bounds,
+    bucketMs,
+    period,
+    deviceIds,
+    flowIds,
+    overlayIds,
+    allIds,
+    raw,
+    priceRaw,
+    temperatureRaw,
+    series,
+    costPoints,
+    pricePoints,
+    temperaturePoints,
+    untrackedPoints,
+  }) {
+    if (!this._debugEnabled) {
+      return;
+    }
+
+    const hiddenIds = this._hiddenSeriesIds || new Set();
+    const visibleSeries = (series || []).filter((entry) => !hiddenIds.has(entry.id));
+    const visibleEdges = visibleSeries.map((entry) => this._getSeriesEdge(entry));
+
+    const payload = {
+      range: {
+        start: this._formatDebugDateTime(bounds?.start?.getTime?.()),
+        end: this._formatDebugDateTime(bounds?.end?.getTime?.()),
+      },
+      bucketMs,
+      period,
+      ids: {
+        deviceIds: deviceIds || [],
+        flowFromGrid: flowIds?.fromGrid || [],
+        flowToGrid: flowIds?.toGrid || [],
+        flowSolar: flowIds?.solar || [],
+        flowFromBattery: flowIds?.fromBattery || [],
+        flowToBattery: flowIds?.toBattery || [],
+        costImport: overlayIds?.importCost || [],
+        costExportComp: overlayIds?.exportCompensation || [],
+        price: overlayIds?.price || [],
+        temperature: overlayIds?.temperature || [],
+      },
+      fetchPointCounts: {
+        primary: this._buildFetchPointCounts(allIds, raw),
+        price: this._buildFetchPointCounts(overlayIds?.price, priceRaw),
+        temperature: this._buildFetchPointCounts(overlayIds?.temperature, temperatureRaw),
+      },
+      chart: {
+        allSeriesIds: (series || []).map((entry) => entry.id),
+        hiddenSeriesIds: Array.from(hiddenIds),
+        visibleSeriesIds: visibleSeries.map((entry) => entry.id),
+        pointCounts: {
+          untracked: untrackedPoints.length,
+          cost: costPoints.length,
+          price: pricePoints.length,
+          temperature: temperaturePoints.length,
+        },
+        nonZeroPointCounts: {
+          untracked: untrackedPoints.filter((point) => Math.abs(Number(point?.[1]) || 0) > 1e-12)
+            .length,
+          cost: costPoints.filter((point) => Math.abs(Number(point?.[1]) || 0) > 1e-12).length,
+          price: pricePoints.filter((point) => Math.abs(Number(point?.[1]) || 0) > 1e-12)
+            .length,
+          temperature: temperaturePoints.filter(
+            (point) => Math.abs(Number(point?.[1]) || 0) > 1e-12
+          ).length,
+        },
+        visibleSeriesEdges: visibleEdges,
+        overallVisibleEdges: this._getOverallSeriesEdges(visibleSeries),
+        overallAllSeriesEdges: this._getOverallSeriesEdges(series || []),
+      },
+    };
+
+    console.groupCollapsed("[fortum-energy] adaptive graph debug");
+    console.log(payload);
+    if ((overlayIds?.importCost?.length || overlayIds?.exportCompensation?.length) && !costPoints.length) {
+      console.warn("[fortum-energy] cost overlay has IDs but no chart points", {
+        importCostIds: overlayIds.importCost,
+        exportCompensationIds: overlayIds.exportCompensation,
+      });
+    }
+    if (!untrackedPoints.length || !untrackedPoints.some((point) => Math.abs(Number(point?.[1]) || 0) > 1e-12)) {
+      console.warn("[fortum-energy] untracked series has no non-zero points");
+    }
+    console.groupEnd();
   }
 
   _applySeriesVisibility() {
@@ -2518,6 +2673,23 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     this._chartOptions = options;
     this._legendRows = [totalRow, ...legendRowsFromSeries];
     this._initializeSeriesVisibility(series);
+    this._logAdaptiveGraphDebug({
+      bounds,
+      bucketMs,
+      period,
+      deviceIds,
+      flowIds,
+      overlayIds,
+      allIds,
+      raw,
+      priceRaw,
+      temperatureRaw,
+      series,
+      costPoints,
+      pricePoints,
+      temperaturePoints,
+      untrackedPoints,
+    });
     this._applySeriesVisibility();
   }
 }
