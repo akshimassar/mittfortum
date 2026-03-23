@@ -73,6 +73,8 @@ strategy:
   type: custom:fortum-energy
 ```
 
+For dashboard behavior and strategy options (including `energy_sources` overrides), see `docs/dashboard.md`.
+
 For manual Energy setup, add Fortum hourly statistics under Grid consumption:
 
 ![Energy dashboard grid consumption configuration example](docs/images/grid_consumption_config.png)
