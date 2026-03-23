@@ -52,6 +52,11 @@ CLEAR_STATISTICS_TIMEOUT_SECONDS = 60
 REQUEST_RETRY_DELAYS = (5.0, 10.0)
 
 
+def _fmt_day(value: datetime) -> str:
+    """Format datetime for concise day-level logs."""
+    return dt_util.as_utc(value).date().isoformat()
+
+
 class FortumAPIClient:
     """Main API client for Fortum tRPC services."""
 
@@ -186,8 +191,8 @@ class FortumAPIClient:
 
         _LOGGER.debug(
             "_fetch_time_series_data: from=%s to=%s resolution=%s series_type=%s",
-            from_date.isoformat(),
-            to_date.isoformat(),
+            _fmt_day(from_date),
+            _fmt_day(to_date),
             resolution,
             series_type or "default",
         )
@@ -267,11 +272,11 @@ class FortumAPIClient:
                 "Statistics sync start for %s: start=%s historical=%s "
                 "force_resync=%s two_weeks_ago=%s now=%s",
                 metering_point_no,
-                sync_start.isoformat(),
+                _fmt_day(sync_start),
                 historical,
                 force_resync,
-                two_weeks_ago.isoformat(),
-                utc_now.isoformat(),
+                _fmt_day(two_weeks_ago),
+                _fmt_day(utc_now),
             )
 
             if sync_start < utc_now:
@@ -615,8 +620,8 @@ class FortumAPIClient:
         _LOGGER.debug(
             "_record_hourly_data_stats start: metering_point_no=%s from=%s to=%s",
             metering_point_no,
-            dt_util.as_utc(from_date).isoformat(),
-            dt_util.as_utc(to_date).isoformat(),
+            _fmt_day(from_date),
+            _fmt_day(to_date),
         )
 
         local_tz = ZoneInfo(self._endpoints.profile.timezone)
@@ -938,8 +943,8 @@ class FortumAPIClient:
             "_record_hourly_data_stats done: metering_point_no=%s from=%s to=%s "
             "processed_records=%d total_consumption %s -> %s",
             metering_point_no,
-            dt_util.as_utc(from_date).isoformat(),
-            dt_util.as_utc(to_date).isoformat(),
+            _fmt_day(from_date),
+            _fmt_day(to_date),
             imported_points,
             seed_text,
             final_text,
@@ -975,8 +980,8 @@ class FortumAPIClient:
             "Recorded earliest available hour for %s from API metadata: %s "
             "(requested_from=%s)",
             time_series.metering_point_no,
-            normalized.isoformat(),
-            dt_util.as_utc(requested_from_date).isoformat(),
+            _fmt_day(normalized),
+            _fmt_day(requested_from_date),
         )
 
     def _record_metering_point_earliest_available_marker(
@@ -1005,7 +1010,7 @@ class FortumAPIClient:
         _LOGGER.debug(
             "Recorded earliest available hour for %s from user info metadata: %s",
             metering_point.metering_point_no,
-            normalized.isoformat(),
+            _fmt_day(normalized),
         )
 
     @staticmethod
