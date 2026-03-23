@@ -3286,6 +3286,16 @@ class FortumEnergyFuturePriceCard extends HTMLElement {
     const clampedX = Math.max(rect.x, Math.min(rect.x + rect.width, x));
     const todayWidth = Math.max(0, clampedX - rect.x);
     const tomorrowWidth = Math.max(0, rect.x + rect.width - clampedX);
+    const isDarkTheme =
+      this._hass?.themes?.darkMode ??
+      (typeof window !== "undefined" &&
+        window.matchMedia?.("(prefers-color-scheme: dark)")?.matches);
+    const todayShadeColor = isDarkTheme
+      ? "rgba(34, 197, 94, 0.07)"
+      : "rgba(148, 163, 184, 0.12)";
+    const tomorrowShadeColor = isDarkTheme
+      ? "rgba(250, 204, 21, 0.11)"
+      : "rgba(100, 116, 139, 0.16)";
     const labelSize = Math.max(12, Math.round(rect.height * 0.25));
     if (todayLabelEl) {
       todayLabelEl.style.fontSize = `${labelSize}px`;
@@ -3300,7 +3310,7 @@ class FortumEnergyFuturePriceCard extends HTMLElement {
       todayShadeEl.style.top = `${rect.y}px`;
       todayShadeEl.style.width = `${todayWidth}px`;
       todayShadeEl.style.height = `${rect.height}px`;
-      todayShadeEl.style.background = "rgba(34, 197, 94, 0.07)";
+      todayShadeEl.style.background = todayShadeColor;
     } else {
       todayShadeEl.style.display = "none";
     }
@@ -3311,7 +3321,7 @@ class FortumEnergyFuturePriceCard extends HTMLElement {
       tomorrowShadeEl.style.top = `${rect.y}px`;
       tomorrowShadeEl.style.width = `${tomorrowWidth}px`;
       tomorrowShadeEl.style.height = `${rect.height}px`;
-      tomorrowShadeEl.style.background = "rgba(250, 204, 21, 0.11)";
+      tomorrowShadeEl.style.background = tomorrowShadeColor;
     } else {
       tomorrowShadeEl.style.display = "none";
     }
