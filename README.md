@@ -11,11 +11,11 @@ A Home Assistant custom integration for accessing energy consumption data from F
 
 Historical data usually available in Fortum for the past years is synced to Home Assistant:
 
-![Energy Dashboard year view showing historical availability](energy_dashboard_year.png)
+![Energy Dashboard year view showing historical availability](docs/images/energy_dashboard_year.png)
 
 All while keeping hourly resolution to it:
 
-![Energy Dashboard day view showing hourly resolution](energy_dashboard_day.png)
+![Energy Dashboard day view showing hourly resolution](docs/images/energy_dashboard_day.png)
 
 ## Features
 
@@ -70,7 +70,7 @@ strategy:
 
 For manual Energy setup, add Fortum hourly statistics under Grid consumption:
 
-![Energy dashboard grid consumption configuration example](grid_consumption_config.png)
+![Energy dashboard grid consumption configuration example](docs/images/grid_consumption_config.png)
 
 ## Initial Sync Behavior
 
@@ -91,7 +91,7 @@ Additionally, it imports hourly Recorder statistics for each available metering 
 
 These appear in Home Assistant as **"Entity without state"** entities (statistics-only entities), so they are not shown in **Developer Tools -> States** or listed under the integration's regular entity list.
 
-![Home Assistant showing Entity without state badge](entity_without_state.png)
+![Home Assistant showing Entity without state badge](docs/images/entity_without_state.png)
 
 - `fortum:hourly_consumption_<metering_point_no>`
 - `fortum:hourly_cost_<metering_point_no>`
