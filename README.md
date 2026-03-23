@@ -116,7 +116,7 @@ If `Debug entities` is enabled in integration options, one debug sensor and two 
 
 ## Architecture
 
-For architecture details, project layout, and contributor-focused development notes, see `DEVELOPMENT.md`.
+For architecture details, project layout, and contributor-focused development notes, see `docs/development.md`.
 
 For minimal AI/code-agent instructions, see `AGENTS.md`.
 
