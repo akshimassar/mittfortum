@@ -79,7 +79,7 @@ Notes:
 
 - `_get` retries all request failures with a unified policy: **3 total attempts** with **5s** and **10s** backoff delays.
 - Retry logs are warning-level; terminal diagnostics are logged once on the final failed attempt (includes URL and exception details).
-- HTTP `401` is treated as authentication failure and raised as `AuthenticationError`.
+- HTTP `401` is treated as authentication failure and raised as `AuthenticationError` on the final failed attempt after `_get` retries.
 - Other API/transport errors are raised as `APIError` (or wrapped as API error).
 
 #### API logging behavior (`api/client.py`)
