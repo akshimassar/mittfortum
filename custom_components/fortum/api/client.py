@@ -1341,12 +1341,13 @@ class FortumAPIClient:
                         raise APIError("GET request failed") from exc
 
                     delay = REQUEST_RETRY_DELAYS[attempt - 1]
+                    details = self._format_exception_details(exc)
                     _LOGGER.warning(
                         "GET failed (attempt %d/%d), retrying in %.1fs: %s",
                         attempt,
                         max_attempts,
                         delay,
-                        exc,
+                        details,
                     )
                     await asyncio.sleep(delay)
 
@@ -1384,10 +1385,6 @@ class FortumAPIClient:
     def _handle_redirect_response(self, response) -> None:
         """Handle redirect responses (307)."""
         location = response.headers.get("Location", "")
-        _LOGGER.debug("Received 307 redirect response")
-
-        # Handle other redirects
-        _LOGGER.warning("Unexpected redirect response from API")
         raise APIError(f"Unexpected redirect to: {location}")
 
     def _handle_server_error_response(self, response) -> None:
@@ -1403,49 +1400,25 @@ class FortumAPIClient:
                         json_error = error_details["json"]
                         error_msg = json_error.get("message", "Unknown error")
                         error_code = json_error.get("code", "Unknown")
-                        _LOGGER.error(
-                            "Server error (tRPC): %s (code: %s). "
-                            "Additional details may be redacted by Fortum backend.",
-                            error_msg,
-                            error_code,
-                        )
-                        # For INTERNAL_SERVER_ERROR, suggest reducing date range
-                        if error_msg == "INTERNAL_SERVER_ERROR":
-                            raise APIError(
-                                "Server error - try reducing date range "
-                                "or changing resolution"
-                            )
-                        else:
-                            raise APIError(f"Server error: {error_msg}")
+                        raise APIError(f"Server error ({error_code}): {error_msg}")
         except (ValueError, KeyError):
             # Fall through to generic handling
             pass
 
-        _LOGGER.error("Server error (500): %s", response.text)
-        raise APIError("Server internal error - try again later")
+        raise APIError(f"Server internal error (500): {response.text}")
 
     async def _handle_response(self, response) -> Any:
         """Handle API response with error checking."""
-        if response.status_code < 200 or response.status_code >= 300:
-            _LOGGER.debug("Response status: %s", response.status_code)
-
         # Handle different status codes
         if response.status_code == 307:
             self._handle_redirect_response(response)
         elif response.status_code == 401:
-            _LOGGER.warning("Request unauthorized (401)")
             raise AuthenticationError("Unauthorized (401)")
         elif response.status_code == 403:
-            _LOGGER.warning("Access forbidden, may need re-authentication")
             raise APIError("Access forbidden - authentication may be required")
         elif response.status_code == 500:
             self._handle_server_error_response(response)
         elif response.status_code != 200:
-            _LOGGER.error(
-                "Unexpected status code: %s, response: %s",
-                response.status_code,
-                response.text,
-            )
             raise UnexpectedStatusCodeError(
                 f"Unexpected status code {response.status_code}: {response.text}"
             )
