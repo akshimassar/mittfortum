@@ -107,9 +107,10 @@ class TestHourlyConsumptionSyncCoordinator:
         sync_mock = mock_api_client.sync_hourly_data_all_meters
         sync_mock.side_effect = APIError("sync failed")
 
-        data = await coordinator._async_update_data()
+        with pytest.raises(UpdateFailed) as exc_info:
+            await coordinator._async_update_data()
 
-        assert data == []
+        assert "API error" in str(exc_info.value)
         assert coordinator.last_statistics_sync is None
 
     async def test_async_update_data_authentication_error(

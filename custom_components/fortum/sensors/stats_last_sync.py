@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.helpers.entity import EntityCategory
@@ -38,7 +38,8 @@ class MittFortumStatisticsLastSyncSensor(MittFortumEntity, SensorEntity):
     @property
     def native_value(self) -> datetime | None:
         """Return timestamp of latest successful statistics sync."""
-        return self.coordinator.last_statistics_sync
+        coordinator = cast("HourlyConsumptionSyncCoordinator", self.coordinator)
+        return coordinator.last_statistics_sync
 
     @property
     def device_class(self) -> SensorDeviceClass:
@@ -48,4 +49,13 @@ class MittFortumStatisticsLastSyncSensor(MittFortumEntity, SensorEntity):
     @property
     def available(self) -> bool:
         """Return if sensor is available."""
-        return self.coordinator.last_statistics_sync is not None
+        coordinator = cast("HourlyConsumptionSyncCoordinator", self.coordinator)
+        return (
+            coordinator.last_statistics_sync is not None
+            and coordinator.last_update_success
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return coordinator update health details."""
+        return {"last_update_success": self.coordinator.last_update_success}

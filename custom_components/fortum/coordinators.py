@@ -65,22 +65,14 @@ class HourlyConsumptionSyncCoordinator(DataUpdateCoordinator[list[ConsumptionDat
         try:
             _LOGGER.debug("HourlyConsumptionSyncCoordinator._async_update_data: start")
             data: list[ConsumptionData] = []
-
-            try:
-                imported_points = await self.async_run_statistics_sync(
-                    force_resync=False,
-                )
-            except APIError as exc:
-                _LOGGER.warning(
-                    "HourlyConsumptionSyncCoordinator._async_update_data: failed: %s",
-                    exc,
-                )
-            else:
-                _LOGGER.debug(
-                    "HourlyConsumptionSyncCoordinator._async_update_data: "
-                    "processed_points=%d",
-                    imported_points,
-                )
+            imported_points = await self.async_run_statistics_sync(
+                force_resync=False,
+            )
+            _LOGGER.debug(
+                "HourlyConsumptionSyncCoordinator._async_update_data: "
+                "processed_points=%d",
+                imported_points,
+            )
         except APIError as exc:
             _LOGGER.exception(
                 "HourlyConsumptionSyncCoordinator._async_update_data: API error"

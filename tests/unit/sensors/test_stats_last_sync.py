@@ -34,6 +34,7 @@ def test_stats_last_sync_sensor_properties() -> None:
     assert sensor.entity_category == EntityCategory.DIAGNOSTIC
     assert sensor.native_value == coordinator.last_statistics_sync
     assert sensor.available is True
+    assert sensor.extra_state_attributes == {"last_update_success": True}
 
 
 def test_stats_last_sync_sensor_unavailable_without_sync() -> None:
@@ -55,3 +56,25 @@ def test_stats_last_sync_sensor_unavailable_without_sync() -> None:
 
     assert sensor.native_value is None
     assert sensor.available is False
+
+
+def test_stats_last_sync_sensor_unavailable_after_failed_update() -> None:
+    """Sensor should reflect current coordinator update failure."""
+    coordinator = Mock()
+    coordinator.last_update_success = False
+    coordinator.data = []
+    coordinator.last_statistics_sync = datetime.now().astimezone()
+
+    device = Mock(spec=MittFortumDevice)
+    device.device_info = {
+        "identifiers": {("fortum", "123456")},
+        "name": "Fortum Energy Meter",
+        "manufacturer": "Fortum",
+        "model": "Energy Meter",
+    }
+
+    sensor = MittFortumStatisticsLastSyncSensor(coordinator=coordinator, device=device)
+
+    assert sensor.native_value == coordinator.last_statistics_sync
+    assert sensor.available is False
+    assert sensor.extra_state_attributes == {"last_update_success": False}
