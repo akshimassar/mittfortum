@@ -1944,12 +1944,14 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
   _logAdaptiveGraphDebug({
     bounds,
     bucketMs,
-    period,
+    devicePeriod,
+    flowPeriod,
     deviceIds,
+    flowAndCostIds,
     flowIds,
     overlayIds,
-    allIds,
-    raw,
+    deviceRaw,
+    flowRaw,
     priceRaw,
     temperatureRaw,
     series,
@@ -1972,9 +1974,15 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         end: this._formatDebugDateTime(bounds?.end?.getTime?.()),
       },
       bucketMs,
-      period,
+      period: {
+        device: devicePeriod,
+        flowAndCost: flowPeriod,
+        price: "hour",
+        temperature: "hour",
+      },
       ids: {
         deviceIds: deviceIds || [],
+        flowAndCostIds: flowAndCostIds || [],
         flowFromGrid: flowIds?.fromGrid || [],
         flowToGrid: flowIds?.toGrid || [],
         flowSolar: flowIds?.solar || [],
@@ -1986,7 +1994,8 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         temperature: overlayIds?.temperature || [],
       },
       fetchPointCounts: {
-        primary: this._buildFetchPointCounts(allIds, raw),
+        device: this._buildFetchPointCounts(deviceIds, deviceRaw),
+        flowAndCost: this._buildFetchPointCounts(flowAndCostIds, flowRaw),
         price: this._buildFetchPointCounts(overlayIds?.price, priceRaw),
         temperature: this._buildFetchPointCounts(overlayIds?.temperature, temperatureRaw),
       },
@@ -2174,7 +2183,9 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
 
     const widthPx = this._chart.clientWidth || this.clientWidth || 0;
     let bucketMs = this._pickBucketMs(bounds.start, bounds.end, widthPx, 15 * 60 * 1000);
-    let period = bucketMs <= 15 * 60 * 1000 ? "5minute" : "hour";
+    let devicePeriod = bucketMs <= 15 * 60 * 1000 ? "5minute" : "hour";
+    const flowPeriod = "hour";
+    const flowBucketMs = 60 * 60 * 1000;
 
     const flowIds = this._buildEnergyFlowIds(data.prefs);
     const overlayIds = this._collectCostAndPriceIds(data);
@@ -2186,9 +2197,8 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       ...flowIds.fromBattery,
       ...flowIds.toBattery,
     ]);
-    const allIds = Array.from(
+    const flowAndCostIds = Array.from(
       new Set([
-        ...deviceIds,
         ...flowIds.fromGrid,
         ...flowIds.toGrid,
         ...flowIds.solar,
@@ -2202,22 +2212,32 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     const token = (this._token || 0) + 1;
     this._token = token;
 
-    let raw = await this._fetchStats(allIds, bounds.start, bounds.end, period);
+    let deviceRaw = await this._fetchStats(deviceIds, bounds.start, bounds.end, devicePeriod);
     if (this._token !== token) {
       return;
     }
 
     const missingSubHour =
-      period === "5minute" &&
-      deviceIds.some((id) => !Array.isArray(raw?.[id]) || raw[id].length === 0);
+      devicePeriod === "5minute" &&
+      deviceIds.some((id) => !Array.isArray(deviceRaw?.[id]) || deviceRaw[id].length === 0);
     if (missingSubHour) {
-      period = "hour";
+      devicePeriod = "hour";
       bucketMs = this._pickBucketMs(bounds.start, bounds.end, widthPx, 60 * 60 * 1000);
-      raw = await this._fetchStats(allIds, bounds.start, bounds.end, period);
+      deviceRaw = await this._fetchStats(deviceIds, bounds.start, bounds.end, devicePeriod);
       if (this._token !== token) {
         return;
       }
     }
+
+    const flowRaw = await this._fetchStats(flowAndCostIds, bounds.start, bounds.end, flowPeriod);
+    if (this._token !== token) {
+      return;
+    }
+
+    const raw = {
+      ...(flowRaw || {}),
+      ...(deviceRaw || {}),
+    };
 
     const normalized = {};
     Object.keys(raw || {}).forEach((id) => {
@@ -2321,49 +2341,98 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     const fromBattery = new Map();
     const toBattery = new Map();
     flowIds.fromGrid.forEach((id) =>
-      this._mergeInto(fromGrid, this._bucketSeries(normalized[id] || [], bucketMs))
+      this._mergeInto(fromGrid, this._bucketSeries(normalized[id] || [], flowBucketMs))
     );
     flowIds.toGrid.forEach((id) =>
-      this._mergeInto(toGrid, this._bucketSeries(normalized[id] || [], bucketMs))
+      this._mergeInto(toGrid, this._bucketSeries(normalized[id] || [], flowBucketMs))
     );
     flowIds.solar.forEach((id) =>
-      this._mergeInto(solar, this._bucketSeries(normalized[id] || [], bucketMs))
+      this._mergeInto(solar, this._bucketSeries(normalized[id] || [], flowBucketMs))
     );
     flowIds.fromBattery.forEach((id) =>
-      this._mergeInto(fromBattery, this._bucketSeries(normalized[id] || [], bucketMs))
+      this._mergeInto(fromBattery, this._bucketSeries(normalized[id] || [], flowBucketMs))
     );
     flowIds.toBattery.forEach((id) =>
-      this._mergeInto(toBattery, this._bucketSeries(normalized[id] || [], bucketMs))
+      this._mergeInto(toBattery, this._bucketSeries(normalized[id] || [], flowBucketMs))
     );
 
-    const allTs = new Set([
+    const flowBuckets = new Set([
       ...fromGrid.keys(),
       ...toGrid.keys(),
       ...solar.keys(),
       ...fromBattery.keys(),
       ...toBattery.keys(),
-      ...deviceTotalsByTs.keys(),
     ]);
 
-    const sortedBuckets = Array.from(allTs).sort((a, b) => a - b);
-    const totalConsumedByBucket = new Map();
+    const deviceTotalsByFlowBucket = new Map();
+    deviceTotalsByTs.forEach((value, ts) => {
+      const flowTs = this._bucketStart(ts, flowBucketMs);
+      deviceTotalsByFlowBucket.set(
+        flowTs,
+        (deviceTotalsByFlowBucket.get(flowTs) || 0) + value
+      );
+    });
 
-    const untrackedPoints = sortedBuckets
-      .map((ts) => {
-        const usedTotal =
-          Math.max(fromGrid.get(ts) || 0, 0) +
-          Math.max(solar.get(ts) || 0, 0) +
-          Math.max(fromBattery.get(ts) || 0, 0) -
-          Math.max(toGrid.get(ts) || 0, 0) -
-          Math.max(toBattery.get(ts) || 0, 0);
-        totalConsumedByBucket.set(ts, usedTotal);
-        const untracked = Math.max(0, usedTotal - (deviceTotalsByTs.get(ts) || 0));
-        return [ts, untracked];
-      });
+    const sortedFlowBuckets = Array.from(flowBuckets).sort((a, b) => a - b);
+    const totalConsumedByBucket = new Map();
+    const untrackedByBucket = new Map();
+    const subdividesFlowBuckets = bucketMs < flowBucketMs;
+    const bucketsPerFlow = subdividesFlowBuckets
+      ? Math.max(1, Math.round(flowBucketMs / bucketMs))
+      : 1;
+
+    sortedFlowBuckets.forEach((ts) => {
+      const usedTotal =
+        Math.max(fromGrid.get(ts) || 0, 0) +
+        Math.max(solar.get(ts) || 0, 0) +
+        Math.max(fromBattery.get(ts) || 0, 0) -
+        Math.max(toGrid.get(ts) || 0, 0) -
+        Math.max(toBattery.get(ts) || 0, 0);
+      const untracked = Math.max(
+        0,
+        usedTotal - (deviceTotalsByFlowBucket.get(ts) || 0)
+      );
+
+      if (subdividesFlowBuckets) {
+        for (let idx = 0; idx < bucketsPerFlow; idx += 1) {
+          const bucketTs = ts + idx * bucketMs;
+          const bucketUsedTotal = idx === 0 ? usedTotal : 0;
+          const bucketUntracked = idx === 0 ? untracked : 0;
+          totalConsumedByBucket.set(
+            bucketTs,
+            (totalConsumedByBucket.get(bucketTs) || 0) + bucketUsedTotal
+          );
+          untrackedByBucket.set(
+            bucketTs,
+            (untrackedByBucket.get(bucketTs) || 0) + bucketUntracked
+          );
+        }
+        return;
+      }
+
+      const bucketTs = this._bucketStart(ts, bucketMs);
+      totalConsumedByBucket.set(bucketTs, (totalConsumedByBucket.get(bucketTs) || 0) + usedTotal);
+      untrackedByBucket.set(bucketTs, (untrackedByBucket.get(bucketTs) || 0) + untracked);
+    });
+
+    const alignedBuckets = new Set([
+      ...Array.from(untrackedByBucket.keys()),
+      ...Array.from(totalConsumedByBucket.keys()),
+    ]);
+    series.forEach((entry) => {
+      const bucketMap = entry.__bucketMap || new Map();
+      bucketMap.forEach((_value, ts) => alignedBuckets.add(ts));
+    });
+    const sortedAlignedBuckets = Array.from(alignedBuckets).sort((a, b) => a - b);
+
+    const untrackedPoints = sortedAlignedBuckets.map((ts) => [
+      ts,
+      untrackedByBucket.get(ts) || 0,
+    ]);
 
     series.forEach((entry) => {
       const bucketMap = entry.__bucketMap || new Map();
-      entry.data = sortedBuckets.map((ts) => [ts, bucketMap.get(ts) || 0]);
+      entry.data = sortedAlignedBuckets.map((ts) => [ts, bucketMap.get(ts) || 0]);
       delete entry.__bucketMap;
     });
 
@@ -2386,11 +2455,11 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
 
     const costMap = new Map();
     overlayIds.importCost.forEach((id) => {
-      this._mergeInto(costMap, this._bucketSeries(normalized[id] || [], bucketMs));
+      this._mergeInto(costMap, this._bucketSeries(normalized[id] || [], flowBucketMs));
     });
     overlayIds.exportCompensation.forEach((id) => {
       const negativeMap = new Map();
-      this._bucketSeries(normalized[id] || [], bucketMs).forEach((value, ts) => {
+      this._bucketSeries(normalized[id] || [], flowBucketMs).forEach((value, ts) => {
         negativeMap.set(ts, -value);
       });
       this._mergeInto(costMap, negativeMap);
@@ -2599,7 +2668,8 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
           }
           const ts = Array.isArray(rows[0].value) ? rows[0].value[0] : rows[0].value;
           const title = `${this._formatBucketLabel(Number(ts), bucketMs, rangeMs, lang)} (${intervalLabel})`;
-          const totalValue = Number(totalConsumedByBucket.get(Number(ts)) || 0);
+          const totalBucketTs = this._bucketStart(Number(ts), bucketMs);
+          const totalValue = Number(totalConsumedByBucket.get(totalBucketTs) || 0);
           const totalLine = `Total: <div style="direction:ltr; display: inline;">${this._formatEnergyStatValue(totalValue)}</div>`;
           const lines = rows
             .filter(
@@ -2689,12 +2759,14 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     this._logAdaptiveGraphDebug({
       bounds,
       bucketMs,
-      period,
+      devicePeriod,
+      flowPeriod,
       deviceIds,
+      flowAndCostIds,
       flowIds,
       overlayIds,
-      allIds,
-      raw,
+      deviceRaw,
+      flowRaw,
       priceRaw,
       temperatureRaw,
       series,
