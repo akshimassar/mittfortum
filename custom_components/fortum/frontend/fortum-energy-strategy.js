@@ -1242,6 +1242,9 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
   setConfig(config) {
     this._config = config || {};
     this._debugEnabled = this._config.debug === true;
+    if (!this._debugEnabled) {
+      this._lastAdaptiveDebugSignature = undefined;
+    }
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
     }
@@ -1934,6 +1937,10 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     }));
   }
 
+  _buildAdaptiveDebugSignature(payload) {
+    return JSON.stringify(payload);
+  }
+
   _logAdaptiveGraphDebug({
     bounds,
     bucketMs,
@@ -2008,6 +2015,12 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         overallAllSeriesEdges: this._getOverallSeriesEdges(series || []),
       },
     };
+
+    const signature = this._buildAdaptiveDebugSignature(payload);
+    if (signature === this._lastAdaptiveDebugSignature) {
+      return;
+    }
+    this._lastAdaptiveDebugSignature = signature;
 
     console.groupCollapsed("[fortum-energy] adaptive graph debug");
     console.log(payload);
