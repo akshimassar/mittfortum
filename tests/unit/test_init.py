@@ -353,8 +353,8 @@ class TestInit:
                 AsyncMock(return_value=manager),
             ),
             patch(
-                "custom_components.fortum._energy_uses_legacy_grid_flows",
-                return_value=False,
+                "custom_components.fortum._energy_bootstrap_schema_mode",
+                return_value="unified",
             ),
         ):
             await _async_bootstrap_energy_preferences(mock_hass, "entry")
@@ -390,8 +390,8 @@ class TestInit:
                 AsyncMock(return_value=manager),
             ),
             patch(
-                "custom_components.fortum._energy_uses_legacy_grid_flows",
-                return_value=True,
+                "custom_components.fortum._energy_bootstrap_schema_mode",
+                return_value="legacy",
             ),
         ):
             await _async_bootstrap_energy_preferences(mock_hass, "entry")

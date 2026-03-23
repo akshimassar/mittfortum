@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-from importlib import import_module
 from inspect import isawaitable, signature
 from pathlib import Path
 from time import monotonic
@@ -592,7 +591,12 @@ async def _async_bootstrap_energy_preferences(
     if not fortum_stat_pairs:
         return
 
-    if _energy_uses_legacy_grid_flows():
+    schema_mode = _energy_bootstrap_schema_mode()
+    if schema_mode is None:
+        _LOGGER.info("Skipping Fortum Energy bootstrap on unsupported HA version")
+        return
+
+    if schema_mode == "legacy":
         flow_from = [
             {
                 "stat_energy_from": stat_energy_from,
@@ -634,18 +638,30 @@ async def _async_bootstrap_energy_preferences(
     )
 
 
-def _energy_uses_legacy_grid_flows() -> bool:
-    """Return True if this HA energy implementation expects flow_from/flow_to."""
+def _energy_bootstrap_schema_mode() -> str | None:
+    """Return Energy source schema mode for the running Home Assistant version."""
     try:
-        energy_sensor = import_module("homeassistant.components.energy.sensor")
-        adapters = getattr(energy_sensor, "SOURCE_ADAPTERS", ())
-        return any(
-            getattr(adapter, "source_type", None) == "grid"
-            and getattr(adapter, "flow_type", None) in {"flow_from", "flow_to"}
-            for adapter in adapters
-        )
+        from homeassistant.const import __version__ as ha_version  # noqa: PLC0415
     except Exception:
-        return False
+        return None
+
+    match = re.match(r"^(\d+)\.(\d+)", ha_version)
+    if not match:
+        return None
+
+    major = int(match.group(1))
+    minor = int(match.group(2))
+
+    if major != 2026:
+        return None
+
+    if minor in {1, 2}:
+        return "legacy"
+
+    if minor == 3:
+        return "unified"
+
+    return None
 
 
 def _register_created_dashboard_runtime(
