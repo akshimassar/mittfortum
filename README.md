@@ -55,29 +55,22 @@ All while keeping hourly resolution to it:
 4. Enter your Fortum username and password
 5. Select your region and complete setup
 
-### Dashboard Setup (Optional)
+### Dashboard Setup
 
-- In integration options, enable **Create Fortum dashboard** if you want the integration to auto-create a Fortum dashboard.
-- When enabled, the integration creates the dashboard automatically if it does not already exist.
-- Existing dashboards are never modified.
-- If the dashboard is newly created by the integration and Energy sources are still empty, Fortum Energy sources are bootstrapped automatically.
-  - Home Assistant `2026.1` / `2026.2`: legacy Energy flow schema is used.
-  - Home Assistant `2026.3.x`: unified Energy schema is used.
-  - Other versions: Energy bootstrap is skipped.
+- In integration options, enable **Create Fortum dashboard** to auto-create a Fortum dashboard when missing.
+- The same option can also bootstrap Energy sources when supported (currently Home Assistant `2026.1-2026.3`).
+- The integration adds the Lovelace strategy resource automatically during setup.
 
-### Manual Dashboard Creation (YAML Mode / Raw Strategy)
-
-If you prefer creating the dashboard manually (or use YAML mode), create a Lovelace dashboard and set strategy to `custom:fortum-energy`.
-
-The integration adds the Lovelace strategy resource automatically during setup.
-
+If you fully manage Lovelace resources manually and disable/override automatic resources, ensure `/fortum-energy/fortum-energy-strategy.js` is added as a `module` resource and create the dashboard as follows:
 ```yaml
 title: Fortum
 strategy:
   type: custom:fortum-energy
 ```
 
-If you use fully manual Lovelace resource management and disable/override automatic resources, ensure `/fortum-energy/fortum-energy-strategy.js` is added as a `module` resource.
+For manual Energy setup, add Fortum hourly statistics under Grid consumption:
+
+![Energy dashboard grid consumption configuration example](grid_consumption_config.png)
 
 ## Initial Sync Behavior
 
