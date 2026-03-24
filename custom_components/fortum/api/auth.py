@@ -34,7 +34,6 @@ AUTHORIZATION_CODE_PARAM = "code="
 SESSION_BASED_TOKEN = "session_based"
 BEARER_TOKEN_TYPE = "Bearer"
 REQUEST_TIMEOUT_SECONDS = 30.0
-NETWORK_RETRY_DELAYS = (1.0, 2.0, 4.0)
 DEFAULT_TOKEN_EXPIRY_HOURS = 1  # 1 hour default expiry fallback
 FIXED_TOKEN_LIFETIME_SECONDS = 900  # 15 minutes
 SESSION_VERIFICATION_RETRY_DELAYS = (0.5, 1.0, 2.0, 3.0)
@@ -358,50 +357,12 @@ class OAuth2AuthClient:
                 await asyncio.sleep(sleep_for)
                 delay = min(delay * 2, REAUTH_RETRY_MAX_DELAY_SECONDS)
 
-    async def _request_with_retry(self, client, method: str, url: str, **kwargs):
-        """Perform an HTTP request with timeout and network retries."""
-        last_exc: Exception | None = None
-        attempts = len(NETWORK_RETRY_DELAYS) + 1
-
-        for attempt, delay in enumerate((0.0, *NETWORK_RETRY_DELAYS), start=1):
-            if delay:
-                await asyncio.sleep(delay)
-
-            try:
-                return await client.request(
-                    method,
-                    url,
-                    timeout=REQUEST_TIMEOUT_SECONDS,
-                    **kwargs,
-                )
-            except (
-                httpx.ConnectTimeout,
-                httpx.ReadTimeout,
-                httpx.ConnectError,
-                httpx.NetworkError,
-                httpx.RemoteProtocolError,
-            ) as exc:
-                last_exc = exc
-                _LOGGER.warning(
-                    "Network issue during %s %s (attempt %d/%d): %s",
-                    method,
-                    url,
-                    attempt,
-                    attempts,
-                    exc,
-                )
-
-        raise FortumConnectionError(
-            f"Network timeout connecting to Fortum: {url}"
-        ) from last_exc
-
     async def _initialize_fortum_session(self, client) -> str:
         """Initialize Fortum session and get CSRF token."""
         # Get providers
-        providers_resp = await self._request_with_retry(
-            client,
-            "GET",
+        providers_resp = await client.get(
             self._endpoints.providers,
+            timeout=REQUEST_TIMEOUT_SECONDS,
         )
         if providers_resp.status_code != 200:
             _LOGGER.error(
@@ -411,10 +372,9 @@ class OAuth2AuthClient:
             raise OAuth2Error(f"Providers fetch failed: {providers_resp.status_code}")
 
         # Get CSRF token
-        csrf_resp = await self._request_with_retry(
-            client,
-            "GET",
+        csrf_resp = await client.get(
             self._endpoints.csrf,
+            timeout=REQUEST_TIMEOUT_SECONDS,
         )
         if csrf_resp.status_code != 200:
             _LOGGER.error(
