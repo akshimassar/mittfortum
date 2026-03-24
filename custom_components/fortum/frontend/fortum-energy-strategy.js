@@ -1522,7 +1522,13 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         .card-header { padding-bottom: 0; }
         .content { padding: 16px; }
         .content.has-header { padding-top: 0; }
-        .empty { color: var(--secondary-text-color); }
+        .empty {
+          color: var(--secondary-text-color);
+          user-select: text;
+          -webkit-user-select: text;
+          cursor: text;
+          white-space: pre-wrap;
+        }
         .consumption-stats {
           margin-top: 12px;
           border-top: 1px solid var(--divider-color);
@@ -2942,7 +2948,13 @@ class FortumEnergyFuturePriceCard extends HTMLElement {
         .card-header { padding-bottom: 0; }
         .content { padding: 16px; }
         .content.has-header { padding-top: 0; }
-        .empty { color: var(--secondary-text-color); }
+        .empty {
+          color: var(--secondary-text-color);
+          user-select: text;
+          -webkit-user-select: text;
+          cursor: text;
+          white-space: pre-wrap;
+        }
         .chart-wrap {
           position: relative;
           isolation: isolate;
