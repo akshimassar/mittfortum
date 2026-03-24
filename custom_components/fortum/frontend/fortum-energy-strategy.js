@@ -157,6 +157,175 @@ const normalizeEnergySourceOverrides = (energySources) => {
     .filter(Boolean);
 };
 
+const getGridImportFlows = (source) => {
+  if (Array.isArray(source?.flow_from) && source.flow_from.length) {
+    return source.flow_from;
+  }
+  return [source];
+};
+
+const getGridExportFlows = (source) => {
+  if (Array.isArray(source?.flow_to) && source.flow_to.length) {
+    return source.flow_to;
+  }
+  return [source];
+};
+
+const toFortumPriceStatId = (consumptionStatId) => {
+  if (!isFortumConsumptionStatId(consumptionStatId)) {
+    return null;
+  }
+  return consumptionStatId.replace("hourly_consumption_", "hourly_price_");
+};
+
+const toFortumTemperatureStatId = (consumptionStatId) => {
+  if (!isFortumConsumptionStatId(consumptionStatId)) {
+    return null;
+  }
+  return consumptionStatId.replace("hourly_consumption_", "hourly_temperature_");
+};
+
+const toFortumPriceForecastStatId = (priceStatId) => {
+  if (typeof priceStatId !== "string" || !priceStatId.includes("hourly_price_")) {
+    return null;
+  }
+  return priceStatId.replace(/hourly_price_.+$/, "price_forecast");
+};
+
+const deriveEnergyRuntimeConfig = ({
+  prefs,
+  info,
+  overrides,
+  strictOverride = false,
+}) => {
+  const safePrefs = prefs || EMPTY_PREFS;
+  const safeInfo = info || { cost_sensors: {} };
+  const normalizedOverrides = normalizeEnergySourceOverrides(overrides);
+  const hasOverrideInput = Array.isArray(overrides);
+  const useOverride = strictOverride ? hasOverrideInput : normalizedOverrides.length > 0;
+
+  const flowIds = {
+    fromGrid: [],
+    toGrid: [],
+    solar: [],
+    fromBattery: [],
+    toBattery: [],
+  };
+  const overlayIds = {
+    importCost: [],
+    exportCompensation: [],
+    price: [],
+    temperature: [],
+  };
+  const forecastIds = [];
+  const issues = [];
+
+  if (useOverride) {
+    if (!normalizedOverrides.length) {
+      issues.push("override_provided_but_no_valid_energy_sources");
+    }
+    normalizedOverrides.forEach((source) => {
+      flowIds.fromGrid.push(source.stat_energy_from);
+      const costId = source.stat_cost || safeInfo.cost_sensors[source.stat_energy_from];
+      if (costId) {
+        overlayIds.importCost.push(costId);
+      }
+      const priceId = toFortumPriceStatId(source.stat_energy_from);
+      if (priceId) {
+        overlayIds.price.push(priceId);
+        const forecastId = toFortumPriceForecastStatId(priceId);
+        if (forecastId) {
+          forecastIds.push(forecastId);
+        }
+      }
+      const temperatureId = toFortumTemperatureStatId(source.stat_energy_from);
+      if (temperatureId) {
+        overlayIds.temperature.push(temperatureId);
+      }
+    });
+  }
+
+  (safePrefs.energy_sources || []).forEach((source) => {
+    if (source.type === "grid") {
+      if (!useOverride) {
+        getGridImportFlows(source).forEach((flow) => {
+          if (!flow?.stat_energy_from) {
+            return;
+          }
+          flowIds.fromGrid.push(flow.stat_energy_from);
+          const costId = flow.stat_cost || safeInfo.cost_sensors[flow.stat_energy_from];
+          if (costId) {
+            overlayIds.importCost.push(costId);
+          }
+          const priceId = toFortumPriceStatId(flow.stat_energy_from);
+          if (priceId) {
+            overlayIds.price.push(priceId);
+            const forecastId = toFortumPriceForecastStatId(priceId);
+            if (forecastId) {
+              forecastIds.push(forecastId);
+            }
+          }
+          const temperatureId = toFortumTemperatureStatId(flow.stat_energy_from);
+          if (temperatureId) {
+            overlayIds.temperature.push(temperatureId);
+          }
+        });
+      }
+
+      getGridExportFlows(source).forEach((flow) => {
+        if (!flow?.stat_energy_to) {
+          return;
+        }
+        flowIds.toGrid.push(flow.stat_energy_to);
+        const compensationId =
+          flow.stat_compensation ||
+          flow.stat_cost ||
+          safeInfo.cost_sensors[flow.stat_energy_to];
+        if (compensationId) {
+          overlayIds.exportCompensation.push(compensationId);
+        }
+      });
+      return;
+    }
+
+    if (source.type === "solar" && source.stat_energy_from) {
+      flowIds.solar.push(source.stat_energy_from);
+      return;
+    }
+
+    if (source.type === "battery") {
+      if (source.stat_energy_from) {
+        flowIds.fromBattery.push(source.stat_energy_from);
+      }
+      if (source.stat_energy_to) {
+        flowIds.toBattery.push(source.stat_energy_to);
+      }
+    }
+  });
+
+  return {
+    source: useOverride ? "override" : "prefs",
+    strictOverride: !!strictOverride,
+    hasOverrideInput,
+    overridesCount: normalizedOverrides.length,
+    issues,
+    flowIds: {
+      fromGrid: Array.from(new Set(flowIds.fromGrid)),
+      toGrid: Array.from(new Set(flowIds.toGrid)),
+      solar: Array.from(new Set(flowIds.solar)),
+      fromBattery: Array.from(new Set(flowIds.fromBattery)),
+      toBattery: Array.from(new Set(flowIds.toBattery)),
+    },
+    overlayIds: {
+      importCost: Array.from(new Set(overlayIds.importCost)),
+      exportCompensation: Array.from(new Set(overlayIds.exportCompensation)),
+      price: Array.from(new Set(overlayIds.price)),
+      temperature: Array.from(new Set(overlayIds.temperature)),
+    },
+    forecastIds: Array.from(new Set(forecastIds)),
+  };
+};
+
 const buildSetupView = () => ({
   title: "Setup",
   path: "setup",
@@ -281,6 +450,8 @@ const buildElectricityViewConfig = (
       title: "Price of Tomorrow",
       type: "custom:fortum-energy-future-price-card",
       collection_key: collectionKey,
+      debug,
+      energy_sources: energySources,
       grid_options: { columns: 36 },
     });
   }
@@ -1273,7 +1444,8 @@ class FortumEnergyDevicesDetailOverlayCard extends HTMLElement {
 class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
   setConfig(config) {
     this._config = config || {};
-    this._energySourceOverrides = normalizeEnergySourceOverrides(this._config.energy_sources);
+    this._energySourceOverridesInput = this._config.energy_sources;
+    this._strictEnergySourceOverrides = Array.isArray(this._energySourceOverridesInput);
     this._debugEnabled = this._config.debug === true;
     if (!this._debugEnabled) {
       this._lastAdaptiveDebugSignature = undefined;
@@ -1612,94 +1784,6 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     return style.getPropertyValue("--error-color").trim() || "#d9480f";
   }
 
-  _toFortumPriceStatId(consumptionStatId) {
-    if (!isFortumConsumptionStatId(consumptionStatId)) {
-      return null;
-    }
-    return consumptionStatId.replace("hourly_consumption_", "hourly_price_");
-  }
-
-  _toFortumTemperatureStatId(consumptionStatId) {
-    if (!isFortumConsumptionStatId(consumptionStatId)) {
-      return null;
-    }
-    return consumptionStatId.replace("hourly_consumption_", "hourly_temperature_");
-  }
-
-  _collectCostAndPriceIds(data) {
-    const prefs = data?.prefs || EMPTY_PREFS;
-    const info = data?.info || { cost_sensors: {} };
-    const importCost = [];
-    const exportCompensation = [];
-    const price = [];
-    const temperature = [];
-
-    if (this._energySourceOverrides.length) {
-      this._energySourceOverrides.forEach((source) => {
-        const costId = source.stat_cost || info.cost_sensors[source.stat_energy_from];
-        if (costId) {
-          importCost.push(costId);
-        }
-        const priceId = this._toFortumPriceStatId(source.stat_energy_from);
-        if (priceId) {
-          price.push(priceId);
-        }
-        const temperatureId = this._toFortumTemperatureStatId(source.stat_energy_from);
-        if (temperatureId) {
-          temperature.push(temperatureId);
-        }
-      });
-    } else {
-      (prefs.energy_sources || []).forEach((source) => {
-        if (source.type !== "grid") {
-          return;
-        }
-
-        this._getGridImportFlows(source).forEach((flow) => {
-          if (flow.stat_energy_from) {
-            const costId = flow.stat_cost || info.cost_sensors[flow.stat_energy_from];
-            if (costId) {
-              importCost.push(costId);
-            }
-            const priceId = this._toFortumPriceStatId(flow.stat_energy_from);
-            if (priceId) {
-              price.push(priceId);
-            }
-            const temperatureId = this._toFortumTemperatureStatId(flow.stat_energy_from);
-            if (temperatureId) {
-              temperature.push(temperatureId);
-            }
-          }
-        });
-      });
-    }
-
-    (prefs.energy_sources || []).forEach((source) => {
-      if (source.type !== "grid") {
-        return;
-      }
-
-      this._getGridExportFlows(source).forEach((flow) => {
-        if (flow.stat_energy_to) {
-          const compensationId =
-            flow.stat_compensation ||
-            flow.stat_cost ||
-            info.cost_sensors[flow.stat_energy_to];
-          if (compensationId) {
-            exportCompensation.push(compensationId);
-          }
-        }
-      });
-    });
-
-    return {
-      importCost: Array.from(new Set(importCost)),
-      exportCompensation: Array.from(new Set(exportCompensation)),
-      price: Array.from(new Set(price)),
-      temperature: Array.from(new Set(temperature)),
-    };
-  }
-
   _formatCostValue(value) {
     const amount = typeof value === "number" ? value : Number(value || 0);
     const lang = this._hass?.locale?.language || "en";
@@ -2006,6 +2090,7 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     flowAndCostIds,
     flowIds,
     overlayIds,
+    runtimeConfig,
     deviceRaw,
     flowRaw,
     priceRaw,
@@ -2035,6 +2120,12 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         flowAndCost: flowPeriod,
         price: "hour",
         temperature: "hour",
+      },
+      runtimeConfig: {
+        source: runtimeConfig?.source || "prefs",
+        strictOverride: !!runtimeConfig?.strictOverride,
+        overridesCount: runtimeConfig?.overridesCount || 0,
+        issues: runtimeConfig?.issues || [],
       },
       ids: {
         deviceIds: deviceIds || [],
@@ -2165,68 +2256,6 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     return `${this._formatBucketDate(ts, lang)} ${hourRange}`;
   }
 
-  _getGridImportFlows(source) {
-    if (Array.isArray(source.flow_from) && source.flow_from.length) {
-      return source.flow_from;
-    }
-    return [source];
-  }
-
-  _getGridExportFlows(source) {
-    if (Array.isArray(source.flow_to) && source.flow_to.length) {
-      return source.flow_to;
-    }
-    return [source];
-  }
-
-  _buildEnergyFlowIds(prefs) {
-    const ids = {
-      fromGrid: [],
-      toGrid: [],
-      solar: [],
-      fromBattery: [],
-      toBattery: [],
-    };
-
-    if (this._energySourceOverrides.length) {
-      this._energySourceOverrides.forEach((source) => {
-        ids.fromGrid.push(source.stat_energy_from);
-      });
-    }
-
-    (prefs?.energy_sources || []).forEach((source) => {
-      if (source.type === "grid") {
-        if (!this._energySourceOverrides.length) {
-          this._getGridImportFlows(source).forEach((flow) => {
-            if (flow.stat_energy_from) {
-              ids.fromGrid.push(flow.stat_energy_from);
-            }
-          });
-        }
-        this._getGridExportFlows(source).forEach((flow) => {
-          if (flow.stat_energy_to) {
-            ids.toGrid.push(flow.stat_energy_to);
-          }
-        });
-        return;
-      }
-      if (source.type === "solar" && source.stat_energy_from) {
-        ids.solar.push(source.stat_energy_from);
-        return;
-      }
-      if (source.type === "battery") {
-        if (source.stat_energy_from) {
-          ids.fromBattery.push(source.stat_energy_from);
-        }
-        if (source.stat_energy_to) {
-          ids.toBattery.push(source.stat_energy_to);
-        }
-      }
-    });
-
-    return ids;
-  }
-
   async _updateChart() {
     if (!this._hass) {
       return;
@@ -2256,8 +2285,14 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     const flowPeriod = "hour";
     const flowBucketMs = 60 * 60 * 1000;
 
-    const flowIds = this._buildEnergyFlowIds(data.prefs);
-    const overlayIds = this._collectCostAndPriceIds(data);
+    const runtimeConfig = deriveEnergyRuntimeConfig({
+      prefs: data.prefs,
+      info: data.info,
+      overrides: this._energySourceOverridesInput,
+      strictOverride: this._strictEnergySourceOverrides,
+    });
+    const flowIds = runtimeConfig.flowIds;
+    const overlayIds = runtimeConfig.overlayIds;
     this._energyUnit = this._resolveEnergyUnit(data, [
       ...deviceIds,
       ...flowIds.fromGrid,
@@ -2834,6 +2869,7 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       flowAndCostIds,
       flowIds,
       overlayIds,
+      runtimeConfig,
       deviceRaw,
       flowRaw,
       priceRaw,
@@ -2851,6 +2887,12 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
 class FortumEnergyFuturePriceCard extends HTMLElement {
   setConfig(config) {
     this._config = config || {};
+    this._energySourceOverridesInput = this._config.energy_sources;
+    this._strictEnergySourceOverrides = Array.isArray(this._energySourceOverridesInput);
+    this._debugEnabled = this._config.debug === true;
+    if (!this._debugEnabled) {
+      this._lastRuntimeConfigSignature = undefined;
+    }
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
     }
@@ -3420,49 +3462,45 @@ class FortumEnergyFuturePriceCard extends HTMLElement {
     }
   }
 
-  _toPriceStatId(consumptionStatId) {
-    if (typeof consumptionStatId !== "string") {
-      return null;
-    }
-    if (!consumptionStatId.includes("hourly_consumption_")) {
-      return null;
-    }
-    return consumptionStatId.replace("hourly_consumption_", "hourly_price_");
-  }
-
-  _toPriceForecastStatId(priceStatId) {
-    if (typeof priceStatId !== "string") {
-      return null;
-    }
-    if (!priceStatId.includes("hourly_price_")) {
-      return null;
-    }
-    return priceStatId.replace(/hourly_price_.+$/, "price_forecast");
-  }
-
-  _getGridImportFlows(source) {
-    if (Array.isArray(source.flow_from) && source.flow_from.length) {
-      return source.flow_from;
-    }
-    return [source];
-  }
-
-  _deriveForecastIdsFromPrefs(data) {
-    const prefs = data?.prefs || EMPTY_PREFS;
-    const ids = [];
-    (prefs.energy_sources || []).forEach((source) => {
-      if (source.type !== "grid") {
-        return;
-      }
-      this._getGridImportFlows(source).forEach((flow) => {
-        const priceId = this._toPriceStatId(flow?.stat_energy_from);
-        const forecastId = this._toPriceForecastStatId(priceId);
-        if (forecastId) {
-          ids.push(forecastId);
-        }
-      });
+  _deriveRuntimeConfig(data) {
+    return deriveEnergyRuntimeConfig({
+      prefs: data?.prefs,
+      info: data?.info,
+      overrides: this._energySourceOverridesInput,
+      strictOverride: this._strictEnergySourceOverrides,
     });
-    return Array.from(new Set(ids));
+  }
+
+  _logRuntimeConfigDebug(runtimeConfig) {
+    if (!this._debugEnabled) {
+      return;
+    }
+    const payload = {
+      source: runtimeConfig?.source || "prefs",
+      strictOverride: !!runtimeConfig?.strictOverride,
+      overridesCount: runtimeConfig?.overridesCount || 0,
+      issues: runtimeConfig?.issues || [],
+      forecastIds: runtimeConfig?.forecastIds || [],
+      overlayIds: runtimeConfig?.overlayIds || {
+        importCost: [],
+        exportCompensation: [],
+        price: [],
+        temperature: [],
+      },
+      flowIds: runtimeConfig?.flowIds || {
+        fromGrid: [],
+        toGrid: [],
+        solar: [],
+        fromBattery: [],
+        toBattery: [],
+      },
+    };
+    const signature = JSON.stringify(payload);
+    if (signature === this._lastRuntimeConfigSignature) {
+      return;
+    }
+    this._lastRuntimeConfigSignature = signature;
+    console.log("[fortum-energy] runtime config", payload);
   }
 
   _showCardError(message) {
@@ -3504,14 +3542,23 @@ class FortumEnergyFuturePriceCard extends HTMLElement {
     }
 
     const data = this._energyData || this._collection?.state;
-    const forecastIds = this._deriveForecastIdsFromPrefs(data);
+    const runtimeConfig = this._deriveRuntimeConfig(data);
+    this._logRuntimeConfigDebug(runtimeConfig);
+    const forecastIds = runtimeConfig.forecastIds || [];
     if (!forecastIds.length) {
-      this._showCardError("No price forecast statistic derived from Energy settings.");
+      const message = runtimeConfig?.source === "override"
+        ? "No price forecast statistic derived from dashboard energy_sources override."
+        : "No price forecast statistic derived from Energy settings.";
+      this._showCardError(message);
       return;
     }
     if (forecastIds.length > 1) {
+      const prefix =
+        runtimeConfig?.source === "override"
+          ? "Multiple price forecast statistics found from dashboard energy_sources override"
+          : "Multiple price forecast statistics found";
       this._showCardError(
-        `Multiple price forecast statistics found: ${forecastIds.join(", ")}`
+        `${prefix}: ${forecastIds.join(", ")}`
       );
       return;
     }
