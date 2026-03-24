@@ -4274,10 +4274,20 @@ class FortumEnergySettingsRedirectCard extends HTMLElement {
 }
 
 const registerIfNeeded = (tag, klass) => {
+  if (typeof customElements === "undefined") {
+    return;
+  }
   if (!customElements.get(tag)) {
     customElements.define(tag, klass);
   }
 };
+
+if (typeof process !== "undefined" && process?.versions?.node) {
+  globalThis.__fortumEnergyStrategyTestHooks = {
+    normalizeEnergySourceOverrides,
+    deriveEnergyRuntimeConfig,
+  };
+}
 
 registerIfNeeded(
   "fortum-energy-custom-legend-card",
