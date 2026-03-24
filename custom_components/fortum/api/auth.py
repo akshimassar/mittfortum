@@ -7,7 +7,7 @@ import logging
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 from homeassistant.helpers.httpx_client import get_async_client
@@ -41,6 +41,7 @@ SESSION_VERIFICATION_RETRY_DELAYS = (0.5, 1.0, 2.0, 3.0)
 TOKEN_RENEWAL_RETRY_INITIAL_SECONDS = 5.0
 REAUTH_RETRY_MAX_DELAY_SECONDS = 1800.0
 INITIAL_AUTH_MAX_ATTEMPTS = 3
+MAX_LOG_EXCERPT_LENGTH = 240
 
 
 class OAuth2AuthClient:
@@ -287,6 +288,37 @@ class OAuth2AuthClient:
         message = str(exc).lower()
         return "401" in message or "unauthorized" in message
 
+    def _format_exception(self, exc: Exception) -> str:
+        """Return a stable exception string, even for empty exception messages."""
+        exc_type = type(exc).__name__
+        message = str(exc).strip()
+        if message:
+            return f"{exc_type}: {message}"
+
+        if exc.args:
+            return f"{exc_type}: {exc.args!r}"
+
+        return exc_type
+
+    def _redact_url_for_log(self, url: str) -> str:
+        """Return URL without query/fragment to avoid leaking auth artifacts."""
+        parsed = urlsplit(url)
+        if not parsed.scheme or not parsed.netloc:
+            return "<invalid-url>"
+
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+
+    def _safe_response_excerpt(self, text: str | None) -> str:
+        """Return bounded response body excerpt for diagnostics."""
+        if not text:
+            return "<empty>"
+
+        compact = " ".join(text.split())
+        if len(compact) <= MAX_LOG_EXCERPT_LENGTH:
+            return compact
+
+        return f"{compact[:MAX_LOG_EXCERPT_LENGTH]}..."
+
     async def _authenticate_with_backoff(
         self,
         *,
@@ -320,7 +352,7 @@ class OAuth2AuthClient:
                 sleep_for = min(delay, REAUTH_RETRY_MAX_DELAY_SECONDS)
                 _LOGGER.warning(
                     "Authentication attempt failed: %s. Retrying in %.1fs",
-                    exc,
+                    self._format_exception(exc),
                     sleep_for,
                 )
                 await asyncio.sleep(sleep_for)
@@ -372,6 +404,10 @@ class OAuth2AuthClient:
             self._endpoints.providers,
         )
         if providers_resp.status_code != 200:
+            _LOGGER.error(
+                "Providers fetch failed with status=%d",
+                providers_resp.status_code,
+            )
             raise OAuth2Error(f"Providers fetch failed: {providers_resp.status_code}")
 
         # Get CSRF token
@@ -381,6 +417,10 @@ class OAuth2AuthClient:
             self._endpoints.csrf,
         )
         if csrf_resp.status_code != 200:
+            _LOGGER.error(
+                "CSRF fetch failed with status=%d",
+                csrf_resp.status_code,
+            )
             raise OAuth2Error(f"CSRF fetch failed: {csrf_resp.status_code}")
 
         csrf_data = csrf_resp.json()
@@ -406,11 +446,20 @@ class OAuth2AuthClient:
         )
 
         if signin_resp.status_code != 200:
+            _LOGGER.error(
+                "Signin initiation failed with status=%d response=%s",
+                signin_resp.status_code,
+                self._safe_response_excerpt(signin_resp.text),
+            )
             raise OAuth2Error(f"Signin initiation failed: {signin_resp.status_code}")
 
         signin_result = signin_resp.json()
         oauth_url = signin_result.get("url")
         if not oauth_url:
+            _LOGGER.error(
+                "Signin response missing OAuth URL (keys=%s)",
+                sorted(signin_result.keys()),
+            )
             raise OAuth2Error("No OAuth URL received from signin")
 
         _LOGGER.debug("Got OAuth redirect URL from signin response")
@@ -479,6 +528,11 @@ class OAuth2AuthClient:
                 )
 
             if init_data is None:
+                _LOGGER.error(
+                    "Auth init failed for all authIndex values %s (last_status=%s)",
+                    self._endpoints.profile.auth_index_values,
+                    last_status,
+                )
                 raise OAuth2Error(f"Auth init failed: {last_status}")
 
             _LOGGER.debug("Authentication init succeeded, processing callbacks")
@@ -496,6 +550,10 @@ class OAuth2AuthClient:
                     )
                     return success_url  # Return the successUrl to use as OAuth URL
                 else:
+                    _LOGGER.error(
+                        "Auth init response missing authId and successUrl (keys=%s)",
+                        sorted(init_data.keys()),
+                    )
                     raise OAuth2Error(
                         f"No authId or successUrl in init response: {init_data}"
                     )
@@ -525,6 +583,11 @@ class OAuth2AuthClient:
             )
 
             if login_resp.status_code != 200:
+                _LOGGER.error(
+                    "SSO login failed with status=%d response=%s",
+                    login_resp.status_code,
+                    self._safe_response_excerpt(login_resp.text),
+                )
                 raise OAuth2Error(f"Login failed: {login_resp.status_code}")
 
             login_data = login_resp.json()
@@ -541,21 +604,39 @@ class OAuth2AuthClient:
             return None
 
         except Exception as exc:
-            _LOGGER.error("SSO authentication failed: %s", exc)
-            raise OAuth2Error(f"SSO authentication failed: {exc}") from exc
+            exc_text = self._format_exception(exc)
+            _LOGGER.error("SSO authentication failed: %s", exc_text)
+            raise OAuth2Error(f"SSO authentication failed: {exc_text}") from exc
 
     async def _complete_oauth_authorization(self, client, oauth_url: str) -> None:
         """Complete OAuth authorization flow."""
+        current_step = "initial_oauth_completion"
+        oauth_url_for_log = self._redact_url_for_log(oauth_url)
+
         try:
-            oauth_completion_resp = await client.get(oauth_url)
+            oauth_completion_resp = await client.get(
+                oauth_url,
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
 
             if oauth_completion_resp.status_code != 302:
                 _LOGGER.warning(
-                    "OAuth completion returned %d instead of redirect",
+                    "OAuth completion returned status=%d instead of redirect "
+                    "(oauth_url=%s)",
                     oauth_completion_resp.status_code,
+                    oauth_url_for_log,
                 )
                 # Try a full redirect-following request to finalize session.
-                await client.get(oauth_url, follow_redirects=True)
+                current_step = "fallback_follow_redirects"
+                fallback_resp = await client.get(
+                    oauth_url,
+                    follow_redirects=True,
+                    timeout=REQUEST_TIMEOUT_SECONDS,
+                )
+                _LOGGER.debug(
+                    "OAuth completion fallback finished with status=%d",
+                    fallback_resp.status_code,
+                )
                 return
 
             # Follow the callback redirect chain
@@ -564,26 +645,49 @@ class OAuth2AuthClient:
                 _LOGGER.warning("No authorization code in callback URL")
                 # Different regions may not expose code in first redirect.
                 # Follow full redirect chain to establish authenticated session.
-                await client.get(oauth_url, follow_redirects=True)
+                current_step = "missing_code_follow_redirects"
+                fallback_resp = await client.get(
+                    oauth_url,
+                    follow_redirects=True,
+                    timeout=REQUEST_TIMEOUT_SECONDS,
+                )
+                _LOGGER.debug(
+                    "OAuth missing-code fallback finished with status=%d",
+                    fallback_resp.status_code,
+                )
                 return
 
             _LOGGER.debug("Following callback URL...")
 
             # Follow callback to complete flow
-            callback_resp = await client.get(callback_url)
+            current_step = "callback_redirect"
+            callback_resp = await client.get(
+                callback_url,
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
 
             # May get additional redirects
             if callback_resp.status_code == 302:
                 final_redirect = callback_resp.headers.get("location")
                 if final_redirect:
                     _LOGGER.debug("Following final redirect...")
-                    await client.get(final_redirect)
+                    current_step = "final_redirect"
+                    await client.get(
+                        final_redirect,
+                        timeout=REQUEST_TIMEOUT_SECONDS,
+                    )
 
             _LOGGER.debug("OAuth authorization flow completed")
 
         except Exception as exc:
-            _LOGGER.error("OAuth authorization completion failed: %s", exc)
-            raise OAuth2Error(f"OAuth authorization failed: {exc}") from exc
+            exc_text = self._format_exception(exc)
+            _LOGGER.error(
+                "OAuth authorization completion failed at step=%s (oauth_url=%s): %s",
+                current_step,
+                oauth_url_for_log,
+                exc_text,
+            )
+            raise OAuth2Error(f"OAuth authorization failed: {exc_text}") from exc
 
     async def _verify_session_established(self, client) -> dict[str, Any]:
         """Verify that session is properly established."""
@@ -724,7 +828,10 @@ class OAuth2AuthClient:
                 )
                 return False
         except Exception as exc:
-            _LOGGER.warning("Session validation failed with exception: %s", exc)
+            _LOGGER.warning(
+                "Session validation failed with exception: %s",
+                self._format_exception(exc),
+            )
             return False
 
     def _extract_prioritized_cookies(self, client) -> dict[str, str]:
