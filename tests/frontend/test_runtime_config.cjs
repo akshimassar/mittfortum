@@ -228,3 +228,135 @@ test("strict override mode does not fallback to prefs", () => {
   assert.deepEqual(actual.forecastIds, []);
   assert.ok(actual.issues.includes("override_provided_but_no_valid_energy_sources"));
 });
+
+test("strict override mode derives IDs from override only", () => {
+  const prefs = {
+    energy_sources: [
+      {
+        type: "grid",
+        stat_energy_from: "fortum:hourly_consumption_999",
+        stat_cost: "fortum:hourly_cost_999",
+      },
+      {
+        type: "solar",
+        stat_energy_from: "sensor.solar_should_be_ignored",
+      },
+    ],
+  };
+
+  const actual = hooks.deriveEnergyRuntimeConfig({
+    prefs,
+    info: {
+      cost_sensors: {
+        "fortum:hourly_consumption_777": "fortum:hourly_cost_777",
+      },
+    },
+    overrides: [
+      {
+        stat_energy_from: "fortum:hourly_consumption_777",
+      },
+    ],
+    strictOverride: true,
+  });
+
+  assert.equal(actual.source, "override");
+  assert.deepEqual(actual.flowIds.fromGrid, ["fortum:hourly_consumption_777"]);
+  assert.deepEqual(actual.overlayIds.importCost, ["fortum:hourly_cost_777"]);
+  assert.deepEqual(actual.overlayIds.price, ["fortum:hourly_price_777"]);
+  assert.deepEqual(actual.overlayIds.temperature, ["fortum:hourly_temperature_777"]);
+  assert.deepEqual(actual.forecastIds, ["fortum:price_forecast"]);
+  assert.deepEqual(actual.issues, []);
+});
+
+test("override with non-fortum stat does not derive price/forecast", () => {
+  const actual = hooks.deriveEnergyRuntimeConfig({
+    prefs: { energy_sources: [] },
+    info: { cost_sensors: {} },
+    overrides: [
+      {
+        stat_energy_from: "sensor.some_other_consumption_stat",
+      },
+    ],
+    strictOverride: true,
+  });
+
+  assert.equal(actual.source, "override");
+  assert.deepEqual(actual.flowIds.fromGrid, ["sensor.some_other_consumption_stat"]);
+  assert.deepEqual(actual.overlayIds.price, []);
+  assert.deepEqual(actual.overlayIds.temperature, []);
+  assert.deepEqual(actual.forecastIds, []);
+});
+
+test("deduplicates repeated IDs across prefs flows", () => {
+  const prefs = {
+    energy_sources: [
+      {
+        type: "grid",
+        flow_from: [
+          {
+            stat_energy_from: "fortum:hourly_consumption_123",
+            stat_cost: "fortum:hourly_cost_123",
+          },
+          {
+            stat_energy_from: "fortum:hourly_consumption_123",
+            stat_cost: "fortum:hourly_cost_123",
+          },
+        ],
+      },
+    ],
+  };
+
+  const actual = hooks.deriveEnergyRuntimeConfig({
+    prefs,
+    info: { cost_sensors: {} },
+    overrides: undefined,
+    strictOverride: false,
+  });
+
+  assert.deepEqual(actual.flowIds.fromGrid, ["fortum:hourly_consumption_123"]);
+  assert.deepEqual(actual.overlayIds.importCost, ["fortum:hourly_cost_123"]);
+  assert.deepEqual(actual.overlayIds.price, ["fortum:hourly_price_123"]);
+  assert.deepEqual(actual.overlayIds.temperature, ["fortum:hourly_temperature_123"]);
+  assert.deepEqual(actual.forecastIds, ["fortum:price_forecast"]);
+});
+
+test("export compensation resolves in expected precedence", () => {
+  const prefs = {
+    energy_sources: [
+      {
+        type: "grid",
+        flow_to: [
+          {
+            stat_energy_to: "sensor.to_grid_a",
+            stat_compensation: "sensor.comp_a",
+            stat_cost: "sensor.cost_a",
+          },
+          {
+            stat_energy_to: "sensor.to_grid_b",
+            stat_cost: "sensor.cost_b",
+          },
+          {
+            stat_energy_to: "sensor.to_grid_c",
+          },
+        ],
+      },
+    ],
+  };
+
+  const actual = hooks.deriveEnergyRuntimeConfig({
+    prefs,
+    info: {
+      cost_sensors: {
+        "sensor.to_grid_c": "sensor.info_cost_c",
+      },
+    },
+    overrides: undefined,
+    strictOverride: false,
+  });
+
+  assert.deepEqual(actual.overlayIds.exportCompensation, [
+    "sensor.comp_a",
+    "sensor.cost_b",
+    "sensor.info_cost_c",
+  ]);
+});
