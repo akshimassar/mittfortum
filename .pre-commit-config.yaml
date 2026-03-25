@@ -8,6 +8,13 @@ repos:
         pass_filenames: false
         require_serial: true
         files: ^(custom_components/fortum/.*\.py|tests/.*\.py|pyproject\.toml|\.pre-commit-config\.yaml)$
+      - id: frontend-tests
+        name: frontend tests
+        entry: bash -lc 'node --test tests/frontend/*.cjs'
+        language: system
+        pass_filenames: false
+        require_serial: true
+        files: ^(custom_components/fortum/frontend/.*\.(js|mjs|cjs)$|tests/frontend/.*\.(js|mjs|cjs)$|\.pre-commit-config\.yaml)$
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
