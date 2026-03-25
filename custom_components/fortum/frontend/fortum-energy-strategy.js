@@ -192,6 +192,33 @@ const toFortumPriceForecastStatId = (priceStatId) => {
   return null;
 };
 
+const discoverAreaForecastStatisticIds = async (hass) => {
+  const statisticIds = await hass.callWS({
+    type: "recorder/list_statistic_ids",
+  });
+
+  const allIds = (statisticIds || [])
+    .map((item) => {
+      if (typeof item === "string") {
+        return item;
+      }
+      return item?.statistic_id;
+    })
+    .filter((id) => typeof id === "string");
+
+  return Array.from(new Set(allIds))
+    .filter((id) => /^fortum:price_forecast_[a-z0-9_]+$/i.test(id))
+    .sort();
+};
+
+const formatForecastSeriesLabel = (statId, index) => {
+  const match = /^fortum:price_forecast_([a-z0-9_]+)$/i.exec(statId || "");
+  if (!match) {
+    return index === 0 ? "Price" : `Price ${index + 1}`;
+  }
+  return `Price ${String(match[1] || "").toUpperCase()}`;
+};
+
 const deriveEnergyRuntimeConfig = ({
   prefs,
   info,
@@ -1762,28 +1789,6 @@ class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       });
   }
 
-  async _discoverAreaForecastStatisticIds() {
-    const metadata = await this._hass.callWS({
-      type: "recorder/get_statistics_metadata",
-    });
-
-    const allIds = (metadata || [])
-      .map((item) => item?.statistic_id)
-      .filter((id) => typeof id === "string");
-
-    return Array.from(new Set(allIds))
-      .filter((id) => /^fortum:price_forecast_[a-z0-9_]+$/i.test(id))
-      .sort();
-  }
-
-  _forecastSeriesLabel(statId, index) {
-    const match = /^fortum:price_forecast_([a-z0-9_]+)$/i.exec(statId || "");
-    if (!match) {
-      return index === 0 ? "Price" : `Price ${index + 1}`;
-    }
-    return `Price ${String(match[1] || "").toUpperCase()}`;
-  }
-
   _getGraphColorByIndex(index) {
     const style = getComputedStyle(this);
     const color =
@@ -2920,7 +2925,6 @@ class FortumEnergyFuturePriceCard extends HTMLElement {
     this._debugEnabled = this._config.debug === true;
     if (!this._debugEnabled) {
       this._lastRuntimeConfigSignature = undefined;
-      this._lastFuturePriceDebugSignature = undefined;
       this._lastFuturePriceDebugStatus = undefined;
     }
     if (!this.shadowRoot) {
@@ -3562,22 +3566,15 @@ class FortumEnergyFuturePriceCard extends HTMLElement {
     if (!this._debugEnabled) {
       return;
     }
-    globalThis.__fortumFuturePriceDebug = payload;
-    const signature = JSON.stringify(payload);
-    if (signature === this._lastFuturePriceDebugSignature) {
+    const status = payload?.result?.status || "unknown";
+    if (status === this._lastFuturePriceDebugStatus) {
       return;
     }
-    this._lastFuturePriceDebugSignature = signature;
-    if (
-      payload?.result?.status
-      && payload.result.status !== "ok"
-      && payload.result.status !== this._lastFuturePriceDebugStatus
-    ) {
+    this._lastFuturePriceDebugStatus = status;
+    if (status !== "ok") {
       console.warn("[fortum-energy] future price debug", payload);
-      this._lastFuturePriceDebugStatus = payload.result.status;
       return;
     }
-    this._lastFuturePriceDebugStatus = payload?.result?.status;
     console.log("[fortum-energy] future price debug", payload);
   }
 
@@ -3644,7 +3641,7 @@ class FortumEnergyFuturePriceCard extends HTMLElement {
     };
     let forecastIds = [];
     try {
-      const discoveredAreaForecastIds = await this._discoverAreaForecastStatisticIds();
+      const discoveredAreaForecastIds = await discoverAreaForecastStatisticIds(this._hass);
       if (Array.isArray(discoveredAreaForecastIds) && discoveredAreaForecastIds.length) {
         forecastIds = discoveredAreaForecastIds;
       }
@@ -3652,11 +3649,13 @@ class FortumEnergyFuturePriceCard extends HTMLElement {
         status: "ok",
         forecastIds,
       };
-    } catch (_err) {
+    } catch (err) {
       // Use only explicit area-coded forecast statistic ids.
       debugPayload.discovery = {
         status: "error",
         forecastIds: [],
+        errorCode: err?.code || err?.error?.code || null,
+        errorMessage: err?.message || err?.error?.message || String(err),
       };
     }
 
@@ -3717,7 +3716,7 @@ class FortumEnergyFuturePriceCard extends HTMLElement {
       const points = pointsByStatId[statId] || [];
       const color = this._getPriceForecastColor(index);
       const seriesId = `future-price-overlay-${index}`;
-      const seriesName = this._forecastSeriesLabel(statId, index);
+      const seriesName = formatForecastSeriesLabel(statId, index);
       const pointValues = points
         .map((item) => Number(item[1]))
         .filter((v) => Number.isFinite(v));
