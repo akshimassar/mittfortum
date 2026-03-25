@@ -7,7 +7,7 @@ import logging
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
-from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlsplit
+from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
 
 import httpx
 from homeassistant.helpers.httpx_client import get_async_client
@@ -34,7 +34,6 @@ _LOGGER = logging.getLogger(__name__)
 
 # Constants
 CONTENT_TYPE_JSON = "application/json"
-AUTHORIZATION_CODE_PARAM = "code="
 SESSION_BASED_TOKEN = "session_based"
 BEARER_TOKEN_TYPE = "Bearer"
 REQUEST_TIMEOUT_SECONDS = 30.0
@@ -649,39 +648,13 @@ class OAuth2AuthClient:
                         path="/",
                     )
 
-            start_urls: list[str] = []
-            if self._sso_success_url:
-                start_urls.append(self._sso_success_url)
-            if oauth_url not in start_urls:
-                start_urls.append(oauth_url)
-
-            for start_url in start_urls:
-                callback_url = await self._trace_redirect_chain(client, start_url)
-                if callback_url:
-                    await client.get(
-                        callback_url,
-                        follow_redirects=True,
-                        timeout=REQUEST_TIMEOUT_SECONDS,
-                    )
-                    _LOGGER.debug("OAuth authorization flow completed")
-                    return
-
-                fallback_resp = await client.get(
-                    start_url,
-                    follow_redirects=True,
-                    timeout=REQUEST_TIMEOUT_SECONDS,
-                )
-                final_url = str(fallback_resp.url)
-                if AUTHORIZATION_CODE_PARAM in final_url:
-                    _LOGGER.debug("OAuth authorization flow completed")
-                    return
-
-                _LOGGER.warning(
-                    "OAuth completion fallback reached final URL without code "
-                    "(start_url=%s final_url=%s)",
-                    self._redact_url_for_log(start_url),
-                    self._redact_url_for_log(final_url),
-                )
+            start_url = self._sso_success_url or oauth_url
+            await client.get(
+                start_url,
+                follow_redirects=True,
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+            _LOGGER.debug("OAuth authorization flow completed")
 
         except Exception as exc:
             exc_text = self._format_exception(exc)
@@ -691,56 +664,6 @@ class OAuth2AuthClient:
                 exc_text,
             )
             raise OAuth2Error(f"OAuth authorization failed: {exc_text}") from exc
-
-    async def _trace_redirect_chain(
-        self, client, start_url: str, max_hops: int = 5
-    ) -> str | None:
-        """Trace redirect chain and return callback URL containing auth code."""
-        if max_hops <= 0:
-            _LOGGER.warning("Redirect trace skipped because max_hops <= 0")
-            return None
-
-        current_url = start_url
-        for _hop in range(max_hops):
-            redirects_followed = _hop
-            parsed_current = urlparse(current_url)
-            if parse_qs(parsed_current.query).get("code", [None])[0]:
-                _LOGGER.debug(
-                    "Redirect trace found authorization code after %d redirects",
-                    redirects_followed,
-                )
-                return current_url
-
-            response = await client.get(
-                current_url,
-                follow_redirects=False,
-                timeout=REQUEST_TIMEOUT_SECONDS,
-            )
-
-            location = response.headers.get("location")
-            if not location:
-                _LOGGER.warning(
-                    "Redirect trace ended after %d redirects (no location header)",
-                    redirects_followed,
-                )
-                return None
-
-            next_url = urljoin(current_url, location)
-            parsed_next = urlparse(next_url)
-            if parse_qs(parsed_next.query).get("code", [None])[0]:
-                _LOGGER.debug(
-                    "Redirect trace found authorization code after %d redirects",
-                    redirects_followed + 1,
-                )
-                return next_url
-
-            current_url = next_url
-
-        _LOGGER.warning(
-            "Redirect trace reached max_hops=%d without authorization code",
-            max_hops,
-        )
-        return None
 
     async def _verify_session_established(self, client) -> dict[str, Any]:
         """Verify that session is fully established after SSO.

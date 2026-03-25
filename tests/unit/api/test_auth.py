@@ -262,17 +262,12 @@ class TestOAuth2AuthClient:
         mock_http_client = AsyncMock()
         mock_http_client.cookies = Mock()
         mock_http_client.cookies.set = Mock()
-        mock_http_client.get.return_value = Mock(url="https://callback.test?code=abc")
+        mock_http_client.get.return_value = Mock(url="https://final.test")
 
-        with patch.object(
-            client,
-            "_trace_redirect_chain",
-            new=AsyncMock(return_value="https://callback.test?code=abc"),
-        ):
-            await client._complete_oauth_authorization(
-                mock_http_client,
-                "https://oauth.test",
-            )
+        await client._complete_oauth_authorization(
+            mock_http_client,
+            "https://oauth.test",
+        )
 
         assert mock_http_client.cookies.set.call_count == 2
         cookie_domains = {
@@ -280,27 +275,37 @@ class TestOAuth2AuthClient:
             for call in mock_http_client.cookies.set.call_args_list
         }
         assert cookie_domains == {"sso.fortum.com", ".sso.fortum.com"}
+        mock_http_client.get.assert_awaited_once_with(
+            "https://success.test",
+            follow_redirects=True,
+            timeout=30.0,
+        )
 
-    async def test_trace_redirect_chain_resolves_relative_location(self, mock_hass):
-        """Redirect chain tracing should return callback URL with code."""
+    async def test_complete_oauth_authorization_uses_oauth_url_without_success_url(
+        self, mock_hass
+    ):
+        """OAuth completion should fall back to oauth_url when no successUrl exists."""
         client = OAuth2AuthClient(
             hass=mock_hass,
             username="test@example.com",
             password="test_password",
         )
 
-        first = Mock(status_code=302)
-        first.headers = {"location": "/next?code=abc"}
-
         mock_http_client = AsyncMock()
-        mock_http_client.get.return_value = first
+        mock_http_client.cookies = Mock()
+        mock_http_client.cookies.set = Mock()
+        mock_http_client.get.return_value = Mock(url="https://final.test")
 
-        callback = await client._trace_redirect_chain(
+        await client._complete_oauth_authorization(
             mock_http_client,
-            "https://start.test",
+            "https://oauth.test",
         )
 
-        assert callback == "https://start.test/next?code=abc"
+        mock_http_client.get.assert_awaited_once_with(
+            "https://oauth.test",
+            follow_redirects=True,
+            timeout=30.0,
+        )
 
     async def test_refresh_access_token_no_refresh_token(self, mock_hass):
         """Test refresh access token without refresh token raises error."""
