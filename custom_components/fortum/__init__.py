@@ -94,7 +94,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     ensure_diagnostics_log_capture(hass)
     _apply_debug_logging(entry)
-    _LOGGER.debug("Starting Fortum setup for entry_id=%s", entry.entry_id)
+    _LOGGER.debug("starting integration setup for entry_id=%s", entry.entry_id)
 
     # Get credentials from config entry
     username = entry.data[CONF_USERNAME]
@@ -116,7 +116,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Perform initial authentication
         await auth_client.authenticate()
-        _LOGGER.debug("Authentication completed for entry_id=%s", entry.entry_id)
+        _LOGGER.debug("authentication completed entry_id=%s", entry.entry_id)
 
         # Create API client
         api_client = FortumAPIClient(hass, auth_client)
@@ -150,7 +150,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Forward setup to platforms
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-        _LOGGER.debug("Platform setup completed for entry_id=%s", entry.entry_id)
+        _LOGGER.debug("platform setup completed entry_id=%s", entry.entry_id)
 
         # Perform all data retrieval asynchronously after HA startup completes.
         _schedule_post_setup_refreshes(hass, entry, coordinator, price_coordinator)
@@ -160,31 +160,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _schedule_dashboard_strategy_dashboard_creation(hass, entry.entry_id)
 
         _LOGGER.debug(
-            "Fortum setup finished for entry_id=%s in %.2fs",
+            "setup completed entry_id=%s in %.2fs",
             entry.entry_id,
             monotonic() - setup_started,
         )
 
     except AuthenticationError:
-        _LOGGER.exception("Authentication failed for Fortum")
-        _LOGGER.debug(
-            "Fortum setup failed for entry_id=%s after %.2fs",
+        _LOGGER.exception(
+            "setup authentication failed entry_id=%s after %.2fs",
             entry.entry_id,
             monotonic() - setup_started,
         )
         return False
     except FortumError:
-        _LOGGER.exception("Setup failed for Fortum")
-        _LOGGER.debug(
-            "Fortum setup failed for entry_id=%s after %.2fs",
+        _LOGGER.exception(
+            "setup failed entry_id=%s after %.2fs",
             entry.entry_id,
             monotonic() - setup_started,
         )
         return False
     except Exception:
-        _LOGGER.exception("Unexpected error setting up Fortum")
-        _LOGGER.debug(
-            "Fortum setup failed for entry_id=%s after %.2fs",
+        _LOGGER.exception(
+            "setup failed with unexpected error entry_id=%s after %.2fs",
             entry.entry_id,
             monotonic() - setup_started,
         )
@@ -234,7 +231,7 @@ def _pause_all_sync_schedules(hass: HomeAssistant) -> None:
             if hasattr(target, "_unschedule_refresh"):
                 target._unschedule_refresh()  # noqa: SLF001
 
-        _LOGGER.debug("Paused sync scheduling for entry_id=%s", key)
+        _LOGGER.debug("sync scheduling paused for entry_id=%s", key)
 
 
 def pause_all_sync_schedules(hass: HomeAssistant) -> None:
@@ -262,7 +259,7 @@ def _resume_all_sync_schedules(hass: HomeAssistant) -> None:
             if hasattr(price_coordinator, "_schedule_refresh"):
                 price_coordinator._schedule_refresh()  # noqa: SLF001
 
-        _LOGGER.debug("Resumed sync scheduling for entry_id=%s", key)
+        _LOGGER.debug("sync scheduling resumed for entry_id=%s", key)
 
 
 def resume_all_sync_schedules(hass: HomeAssistant) -> None:
@@ -317,7 +314,7 @@ def _extract_customer_id_from_session(
                 return customer_id
 
     _LOGGER.warning(
-        "Could not extract customerId from session data, using username fallback"
+        "could not extract customer_id from session; using username fallback"
     )
     return fallback
 
@@ -331,20 +328,18 @@ async def _async_post_setup_refreshes(
     try:
         await coordinator.async_refresh()
         _LOGGER.debug(
-            "_async_post_setup_refreshes: initial consumption refresh completed "
-            "for config_entry_id=%s",
+            "initial consumption refresh done entry_id=%s",
             entry.entry_id,
         )
 
         await price_coordinator.async_refresh()
         _LOGGER.debug(
-            "_async_post_setup_refreshes: initial price refresh completed "
-            "for config_entry_id=%s",
+            "initial price refresh done entry_id=%s",
             entry.entry_id,
         )
     except Exception:
         _LOGGER.exception(
-            "Async post-setup refresh failed for entry_id=%s",
+            "post-setup refresh failed entry_id=%s",
             entry.entry_id,
         )
 
@@ -362,7 +357,7 @@ def _schedule_post_setup_refreshes(
             _async_post_setup_refreshes(entry, coordinator, price_coordinator)
         )
         _LOGGER.debug(
-            "Scheduled async post-setup refresh immediately for entry_id=%s",
+            "scheduled post-setup refresh now for entry_id=%s",
             entry.entry_id,
         )
         return
@@ -379,7 +374,7 @@ def _schedule_post_setup_refreshes(
             _async_post_setup_refreshes(entry, coordinator, price_coordinator)
         )
         _LOGGER.debug(
-            "Scheduled async post-setup refresh after HA started for entry_id=%s",
+            "scheduled post-setup refresh after HA start for entry_id=%s",
             entry.entry_id,
         )
 
@@ -401,12 +396,12 @@ async def _async_register_dashboard_strategy_static_path(hass: HomeAssistant) ->
 
     strategy_path = _dashboard_strategy_path()
     if not strategy_path.is_file():
-        _LOGGER.warning("Dashboard strategy file is missing at %s", strategy_path)
+        _LOGGER.warning("dashboard strategy file missing at %s", strategy_path)
         return
 
     if (http_component := getattr(hass, "http", None)) is None:
         _LOGGER.debug(
-            "HTTP component unavailable; skipping strategy static registration"
+            "http component unavailable; skipping strategy static path registration"
         )
         return
 
@@ -424,7 +419,7 @@ async def _async_register_dashboard_strategy_static_path(hass: HomeAssistant) ->
 
     hass.data[_DASHBOARD_STATIC_REGISTERED_KEY] = True
     _LOGGER.debug(
-        "Registered dashboard strategy static path at %s", _DASHBOARD_STRATEGY_URL
+        "registered dashboard strategy static path %s", _DASHBOARD_STRATEGY_URL
     )
 
 
@@ -444,7 +439,7 @@ def _schedule_dashboard_strategy_resource_registration(hass: HomeAssistant) -> N
     config = getattr(hass, "config", None)
     if config is None or not hasattr(config, "components"):
         _LOGGER.debug(
-            "Home Assistant config.components unavailable; "
+            "home assistant config.components unavailable; "
             "falling back to startup event"
         )
         if hass.is_running:
@@ -482,7 +477,7 @@ def _schedule_dashboard_strategy_dashboard_creation(
     config = getattr(hass, "config", None)
     if config is None or not hasattr(config, "components"):
         _LOGGER.debug(
-            "Home Assistant config.components unavailable; "
+            "home assistant config.components unavailable; "
             "falling back to startup event for dashboard creation"
         )
         if hass.is_running:
@@ -501,19 +496,19 @@ async def _async_ensure_dashboard_strategy_dashboard(hass: HomeAssistant) -> boo
     """Ensure a Fortum strategy dashboard exists in storage mode."""
     lovelace_data = hass.data.get(LOVELACE_DATA)
     if lovelace_data is None:
-        _LOGGER.debug("Lovelace not loaded; skipping automatic dashboard creation")
+        _LOGGER.debug("lovelace not loaded; skipping automatic dashboard creation")
         return False
 
     if _DASHBOARD_URL_PATH in lovelace_data.dashboards:
         _LOGGER.debug(
-            "Fortum dashboard already exists at /%s; skipping auto-creation",
+            "dashboard already exists at /%s; skipping auto-creation",
             _DASHBOARD_URL_PATH,
         )
         return False
 
     if _DASHBOARD_URL_PATH in lovelace_data.yaml_dashboards:
         _LOGGER.info(
-            "Fortum dashboard URL /%s already configured in YAML; leaving untouched",
+            "dashboard /%s already configured in YAML; leaving untouched",
             _DASHBOARD_URL_PATH,
         )
         return False
@@ -525,7 +520,7 @@ async def _async_ensure_dashboard_strategy_dashboard(hass: HomeAssistant) -> boo
             continue
 
         _LOGGER.debug(
-            "Fortum dashboard entry for /%s already exists; skipping auto-creation",
+            "dashboard entry for /%s already exists; skipping auto-creation",
             _DASHBOARD_URL_PATH,
         )
         return False
@@ -545,7 +540,7 @@ async def _async_ensure_dashboard_strategy_dashboard(hass: HomeAssistant) -> boo
     await dashboard_config.async_save({"strategy": {"type": _DASHBOARD_STRATEGY_TYPE}})
     _register_created_dashboard_runtime(hass, lovelace_data, created_dashboard)
     _LOGGER.info(
-        "Created Fortum dashboard at /%s using strategy '%s'",
+        "created dashboard at /%s using strategy '%s'",
         _DASHBOARD_URL_PATH,
         _DASHBOARD_STRATEGY_TYPE,
     )
@@ -568,7 +563,7 @@ async def _async_bootstrap_energy_preferences(
     manager = await async_get_manager(hass)
     energy_sources = list((manager.data or {}).get("energy_sources", []))
     if energy_sources:
-        _LOGGER.debug("Energy sources already configured; skipping Fortum bootstrap")
+        _LOGGER.debug("energy sources already configured; skipping bootstrap")
         return
 
     entry_data = hass.data.get(DOMAIN, {}).get(entry_id)
@@ -577,7 +572,7 @@ async def _async_bootstrap_energy_preferences(
 
     metering_points = entry_data.get("metering_points", [])
     if not metering_points:
-        _LOGGER.debug("No metering points available; skipping Fortum energy bootstrap")
+        _LOGGER.debug("no metering points available; skipping energy bootstrap")
         return
 
     fortum_stat_pairs: list[tuple[str, str]] = []
@@ -600,7 +595,7 @@ async def _async_bootstrap_energy_preferences(
 
     schema_mode = _energy_bootstrap_schema_mode()
     if schema_mode is None:
-        _LOGGER.info("Skipping Fortum Energy bootstrap on unsupported HA version")
+        _LOGGER.info("skipping energy bootstrap on unsupported HA version")
         return
 
     if schema_mode == "legacy":
@@ -640,7 +635,7 @@ async def _async_bootstrap_energy_preferences(
 
     await manager.async_update(cast(Any, {"energy_sources": fortum_sources}))
     _LOGGER.info(
-        "Added %d Fortum source(s) to Energy preferences",
+        "added %d source(s) to energy preferences",
         len(fortum_stat_pairs),
     )
 
@@ -714,13 +709,13 @@ async def _async_ensure_dashboard_strategy_lovelace_resource(
     """Ensure strategy JS is present in Lovelace storage resources."""
     lovelace_data = hass.data.get(LOVELACE_DATA)
     if lovelace_data is None:
-        _LOGGER.debug("Lovelace not loaded; skipping automatic resource registration")
+        _LOGGER.debug("lovelace not loaded; skipping automatic resource registration")
         return
 
     resources = lovelace_data.resources
     if not isinstance(resources, ResourceStorageCollection):
         _LOGGER.info(
-            "Lovelace resources use YAML mode; add manual resource url=%s type=module",
+            "lovelace resources use YAML mode; add manual resource URL=%s type=module",
             _DASHBOARD_STRATEGY_URL,
         )
         return
@@ -740,6 +735,6 @@ async def _async_ensure_dashboard_strategy_lovelace_resource(
         }
     )
     _LOGGER.info(
-        "Added Lovelace resource for Fortum dashboard strategy at %s",
+        "added lovelace resource for dashboard strategy at %s",
         _DASHBOARD_STRATEGY_URL,
     )

@@ -220,7 +220,7 @@ class TestFortumAPIClient:
             request_timeout=None,
         )
         mock_error.assert_called_once()
-        assert "Time series fetch failed" in mock_error.call_args.args[0]
+        assert "time series fetch failed" in mock_error.call_args.args[0]
         assert mock_error.call_args.args[1] == ["6094111"]
         assert mock_error.call_args.args[2] == request_from.isoformat()
         assert mock_error.call_args.args[3] == request_to.isoformat()

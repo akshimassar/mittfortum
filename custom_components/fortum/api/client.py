@@ -161,7 +161,7 @@ class FortumAPIClient:
             )
         except APIError as exc:
             _LOGGER.error(
-                "Time series fetch failed: metering_point_nos=%s from=%s to=%s "
+                "time series fetch failed: metering_point_nos=%s from=%s to=%s "
                 "resolution=%s series_type=%s error=%s",
                 metering_point_nos,
                 from_date.isoformat(),
@@ -191,7 +191,7 @@ class FortumAPIClient:
         )
 
         _LOGGER.debug(
-            "_fetch_time_series_data: from=%s to=%s resolution=%s series_type=%s",
+            "fetching time series from=%s to=%s resolution=%s series_type=%s",
             _fmt_day(from_date),
             _fmt_day(to_date),
             resolution,
@@ -251,7 +251,7 @@ class FortumAPIClient:
         """Sync hourly data for all metering points in two-week chunks."""
         metering_points = await self.get_metering_points()
         if not metering_points:
-            _LOGGER.debug("No metering points available for hourly statistics sync")
+            _LOGGER.debug("no metering points; skipping hourly stats sync")
             return 0
 
         utc_now = dt_util.utcnow().replace(minute=0, second=0, microsecond=0)
@@ -270,7 +270,7 @@ class FortumAPIClient:
             )
 
             _LOGGER.debug(
-                "Statistics sync start for %s: start=%s historical=%s "
+                "sync start for %s: start=%s historical=%s "
                 "force_resync=%s two_weeks_ago=%s now=%s",
                 metering_point_no,
                 _fmt_day(sync_start),
@@ -355,7 +355,7 @@ class FortumAPIClient:
         while window_start < range_end:
             if steps >= MAX_FULL_BACKFILL_STEPS:
                 _LOGGER.warning(
-                    "Stopped statistics sync after %d windows for %s (start=%s end=%s)",
+                    "stopped statistics sync after %d windows for %s (start=%s end=%s)",
                     MAX_FULL_BACKFILL_STEPS,
                     metering_point_no,
                     range_start.isoformat(),
@@ -409,8 +409,8 @@ class FortumAPIClient:
             earliest = self._earliest_available_by_metering_point.get(metering_point_no)
             if earliest is None:
                 _LOGGER.warning(
-                    "Force history re-sync requested for %s but earliest hourly "
-                    "availability is unknown; starting from two_weeks_ago=%s",
+                    "force re-sync requested for %s but earliest hour is unknown; "
+                    "starting from two_weeks_ago=%s",
                     metering_point_no,
                     two_weeks_ago.isoformat(),
                 )
@@ -426,8 +426,8 @@ class FortumAPIClient:
             earliest = self._earliest_available_by_metering_point.get(metering_point_no)
             if earliest is None:
                 _LOGGER.warning(
-                    "No cost statistics in [%s, %s) for %s and earliest hourly "
-                    "availability is unknown; starting from two_weeks_ago",
+                    "no cost statistics in [%s, %s) for %s and earliest hour is "
+                    "unknown; starting from two_weeks_ago",
                     two_weeks_ago.isoformat(),
                     now.isoformat(),
                     metering_point_no,
@@ -435,7 +435,7 @@ class FortumAPIClient:
                 return two_weeks_ago, True
 
             _LOGGER.info(
-                "No cost statistics in [%s, %s) for %s; scheduling historical sync "
+                "no cost statistics in [%s, %s) for %s; starting historical sync "
                 "from earliest_hourly_available_at_utc=%s",
                 two_weeks_ago.isoformat(),
                 now.isoformat(),
@@ -472,7 +472,7 @@ class FortumAPIClient:
             )
         except Exception as exc:
             _LOGGER.warning(
-                "Could not read cost statistics coverage for %s: %s",
+                "could not read cost statistics coverage for %s: %s",
                 statistic_id,
                 exc,
             )
@@ -571,7 +571,7 @@ class FortumAPIClient:
             )
         except Exception as exc:
             _LOGGER.warning(
-                "Could not read previous sum for %s before %s: %s",
+                "could not read previous sum for %s before %s: %s",
                 statistic_id,
                 hour.isoformat(),
                 exc,
@@ -599,7 +599,7 @@ class FortumAPIClient:
     ) -> int:
         """Fetch hourly data and push derived statistics to HA recorder."""
         _LOGGER.debug(
-            "_record_hourly_data_stats start: metering_point_no=%s from=%s to=%s",
+            "hourly stats import start: metering_point_no=%s from=%s to=%s",
             metering_point_no,
             _fmt_day(from_date),
             _fmt_day(to_date),
@@ -674,8 +674,7 @@ class FortumAPIClient:
                 if first_missing_price_at is not None:
                     if continue_after_missing:
                         _LOGGER.warning(
-                            "Continuing after missing price gap for %s "
-                            "(first missing at %s, resumed at %s)",
+                            "gap in stats for %s: %s -> %s; continuing",
                             time_series.metering_point_no,
                             first_missing_price_at.isoformat(),
                             point_time.isoformat(),
@@ -684,10 +683,8 @@ class FortumAPIClient:
                     else:
                         _LOGGER.warning(
                             (
-                                "Detected price values after missing price gap for %s "
-                                "(first missing at %s, later point at %s). "
-                                "Skipping remaining points in window to avoid "
-                                "inconsistent statistics import."
+                                "gap in stats for %s: %s -> %s; "
+                                "skipping remaining points in window"
                             ),
                             time_series.metering_point_no,
                             first_missing_price_at.isoformat(),
@@ -921,7 +918,7 @@ class FortumAPIClient:
             else "n/a"
         )
         _LOGGER.debug(
-            "_record_hourly_data_stats done: metering_point_no=%s from=%s to=%s "
+            "hourly stats import done: metering_point_no=%s from=%s to=%s "
             "processed_records=%d total_consumption %s -> %s",
             metering_point_no,
             _fmt_day(from_date),
@@ -958,7 +955,7 @@ class FortumAPIClient:
             normalized
         )
         _LOGGER.debug(
-            "Recorded earliest available hour for %s from API metadata: %s "
+            "recorded earliest available hour for %s from API metadata: %s "
             "(requested_from=%s)",
             time_series.metering_point_no,
             _fmt_day(normalized),
@@ -989,7 +986,7 @@ class FortumAPIClient:
             normalized
         )
         _LOGGER.debug(
-            "Recorded earliest available hour for %s from user info metadata: %s",
+            "recorded earliest available hour for %s from user-info metadata: %s",
             metering_point.metering_point_no,
             _fmt_day(normalized),
         )
@@ -1052,7 +1049,7 @@ class FortumAPIClient:
         to_date = (local_now + timedelta(days=2)).date()
         price_area = self._resolve_price_area()
         _LOGGER.debug(
-            "get_price_data: area=%s from_date=%s to_date=%s",
+            "fetching price data area=%s from_date=%s to_date=%s",
             price_area,
             from_date,
             to_date,
@@ -1111,10 +1108,8 @@ class FortumAPIClient:
                 if price_data:
                     price_data.sort(key=lambda point: point.date_time)
                     _LOGGER.debug(
-                        (
-                            "get_price_data: fetched using resolution %s: "
-                            "records=%d first=%s last=%s"
-                        ),
+                        "fetched price data using resolution %s: records=%d "
+                        "first=%s last=%s",
                         resolution,
                         len(price_data),
                         _fmt_day(price_data[0].date_time),
@@ -1125,7 +1120,7 @@ class FortumAPIClient:
             except APIError as exc:
                 last_error = exc
                 _LOGGER.debug(
-                    "Price fetch failed for resolution %s: %s",
+                    "price fetch failed at resolution %s: %s",
                     resolution,
                     exc,
                 )
@@ -1134,7 +1129,7 @@ class FortumAPIClient:
             raise APIError(f"Failed to fetch price data: {last_error}") from last_error
 
         _LOGGER.debug(
-            "get_price_data: no records area=%s from_date=%s to_date=%s",
+            "no price data records area=%s from_date=%s to_date=%s",
             price_area,
             from_date,
             to_date,
@@ -1171,7 +1166,7 @@ class FortumAPIClient:
             )
 
         if not rows:
-            _LOGGER.debug("_record_price_forecast_statistics: skip no priced rows")
+            _LOGGER.debug("no priced rows; skipping price forecast stats write")
             return
 
         first_unit = next(
@@ -1220,10 +1215,7 @@ class FortumAPIClient:
         first_day = _fmt_day(cast("datetime", rows[0]["start"]))
         last_day = _fmt_day(cast("datetime", rows[-1]["start"]))
         _LOGGER.debug(
-            (
-                "_record_price_forecast_statistics: wrote statistic_id=%s "
-                "rows=%d first=%s last=%s"
-            ),
+            "wrote price forecast stats statistic_id=%s rows=%d first=%s last=%s",
             metadata["statistic_id"],
             len(rows),
             first_day,

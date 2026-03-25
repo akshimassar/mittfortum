@@ -120,7 +120,7 @@ class FortumFullHistoryResyncButton(FortumEntity, ButtonEntity):
 
         elapsed = time.perf_counter() - started
         _LOGGER.info(
-            "Full history re-sync triggered manually, processed %d points in %.2fs",
+            "manual full-history re-sync processed %d points in %.2fs",
             imported_points,
             elapsed,
         )
@@ -160,6 +160,6 @@ class FortumClearStatisticsButton(FortumEntity, ButtonEntity):
             resume_all_sync_schedules(self.coordinator.hass)
 
         _LOGGER.info(
-            "Statistics clear triggered manually, removed %d statistic ids",
+            "manual statistics clear removed %d statistic ids",
             cleared,
         )

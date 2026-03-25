@@ -71,13 +71,13 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         return {"title": f"Fortum ({data[CONF_USERNAME]})"}
 
     except AuthenticationError as exc:
-        _LOGGER.exception("Authentication failed")
+        _LOGGER.exception("authentication failed")
         raise InvalidAuth from exc
     except FortumError as exc:
         _LOGGER.exception("API connection failed")
         raise CannotConnect from exc
     except Exception as exc:
-        _LOGGER.exception("Unexpected error during validation")
+        _LOGGER.exception("unexpected error during validation")
         raise CannotConnect from exc
 
 
@@ -138,7 +138,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception")
+                _LOGGER.exception("unexpected exception")
                 errors["base"] = "unknown"
 
         return self.async_show_form(

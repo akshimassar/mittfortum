@@ -63,30 +63,23 @@ class HourlyConsumptionSyncCoordinator(DataUpdateCoordinator[list[ConsumptionDat
     async def _async_update_data(self) -> list[ConsumptionData]:
         """Fetch data from API."""
         try:
-            _LOGGER.debug("HourlyConsumptionSyncCoordinator._async_update_data: start")
+            _LOGGER.debug("hourly sync start")
             data: list[ConsumptionData] = []
             imported_points = await self.async_run_statistics_sync(
                 force_resync=False,
             )
             _LOGGER.debug(
-                "HourlyConsumptionSyncCoordinator._async_update_data: "
-                "processed_points=%d",
+                "hourly sync processed_points=%d",
                 imported_points,
             )
         except APIError as exc:
-            _LOGGER.exception(
-                "HourlyConsumptionSyncCoordinator._async_update_data: API error"
-            )
+            _LOGGER.exception("hourly sync API error")
             raise UpdateFailed(f"API error: {exc}") from exc
         except AuthenticationError as exc:
-            _LOGGER.exception(
-                "HourlyConsumptionSyncCoordinator._async_update_data: auth error"
-            )
+            _LOGGER.exception("hourly sync auth error")
             raise ConfigEntryAuthFailed("Authentication failed") from exc
         except Exception as exc:
-            _LOGGER.exception(
-                "HourlyConsumptionSyncCoordinator._async_update_data: unexpected error"
-            )
+            _LOGGER.exception("hourly sync unexpected error")
             raise UpdateFailed(f"Unexpected error: {exc}") from exc
         else:
             return data
@@ -113,24 +106,22 @@ class SpotPriceSyncCoordinator(DataUpdateCoordinator[list[SpotPricePoint]]):
     async def _async_update_data(self) -> list[SpotPricePoint]:
         """Fetch price data from API."""
         try:
-            _LOGGER.debug("SpotPriceSyncCoordinator._async_update_data: start")
+            _LOGGER.debug("spot price sync start")
             data = await self.api_client.get_price_data()
             if data is None:
                 data = []
             _LOGGER.debug(
-                "SpotPriceSyncCoordinator._async_update_data: fetched_records=%d",
+                "spot price sync fetched_records=%d",
                 len(data),
             )
         except AuthenticationError as exc:
-            _LOGGER.exception("SpotPriceSyncCoordinator._async_update_data: auth error")
+            _LOGGER.exception("spot price sync auth error")
             raise ConfigEntryAuthFailed("Authentication failed") from exc
         except APIError as exc:
-            _LOGGER.exception("SpotPriceSyncCoordinator._async_update_data: API error")
+            _LOGGER.exception("spot price sync API error")
             raise UpdateFailed(f"API error: {exc}") from exc
         except Exception as exc:
-            _LOGGER.exception(
-                "SpotPriceSyncCoordinator._async_update_data: unexpected error"
-            )
+            _LOGGER.exception("spot price sync unexpected error")
             raise UpdateFailed(f"Unexpected error: {exc}") from exc
         else:
             return data
