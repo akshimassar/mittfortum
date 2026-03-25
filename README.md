@@ -3,7 +3,7 @@
 <img src="custom_components/fortum/brand/logo.png" alt="Fortum logo" width="273" />
 
 A Home Assistant custom integration for accessing energy consumption data from Fortum.
-Written by AI, curated by human.
+Written by AI, curated by software engineer.
 
 ## Country Support
 
