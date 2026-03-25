@@ -618,7 +618,7 @@ class TestOAuth2AuthClient:
         )
         assert mock_sleep.await_count == 0
 
-    async def test_authenticate_with_backoff_caps_delay_to_30_minutes(self, mock_hass):
+    async def test_authenticate_with_backoff_caps_delay_to_8_hours(self, mock_hass):
         """Authentication retry helper should cap exponential backoff delay."""
         client = OAuth2AuthClient(
             hass=mock_hass,
@@ -630,7 +630,7 @@ class TestOAuth2AuthClient:
 
         async def _fail_then_succeed() -> Mock:
             reauth_attempts["count"] += 1
-            if reauth_attempts["count"] <= 11:
+            if reauth_attempts["count"] <= 15:
                 raise AuthenticationError("reauth failed")
             return Mock()
 
@@ -646,5 +646,5 @@ class TestOAuth2AuthClient:
 
         delays = [call.args[0] for call in mock_sleep.await_args_list]
         assert delays[:6] == [5.0, 10.0, 20.0, 40.0, 80.0, 160.0]
-        assert delays[-1] == 1800.0
-        assert max(delays) == 1800.0
+        assert delays[-1] == 28800.0
+        assert max(delays) == 28800.0

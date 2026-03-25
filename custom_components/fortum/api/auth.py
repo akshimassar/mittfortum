@@ -41,7 +41,9 @@ DEFAULT_TOKEN_EXPIRY_HOURS = 1  # 1 hour default expiry fallback
 FIXED_TOKEN_LIFETIME_SECONDS = 900  # 15 minutes
 SESSION_VERIFICATION_RETRY_DELAYS = (0.5, 1.0, 2.0, 3.0)
 TOKEN_RENEWAL_RETRY_INITIAL_SECONDS = 5.0
-REAUTH_RETRY_MAX_DELAY_SECONDS = 1800.0
+# Cap backoff to 8 hours so persistently expired credentials settle to
+# approximately 3 re-auth attempts per day.
+REAUTH_RETRY_MAX_DELAY_SECONDS = 28800.0
 INITIAL_AUTH_MAX_ATTEMPTS = 3
 MAX_LOG_EXCERPT_LENGTH = 240
 
