@@ -326,7 +326,13 @@ class OAuth2AuthClient:
         retry_forever: bool,
         max_attempts: int | None = None,
     ) -> AuthTokens:
-        """Authenticate with exponential backoff and optional attempt cap."""
+        """Authenticate with exponential backoff and optional attempt cap.
+
+        When ``retry_forever`` is true, this loop is intentionally unbounded so
+        scheduler-driven re-auth can eventually recover from transient
+        Fortum/SSO outages. Persistent credential issues are surfaced through
+        coordinator auth failures.
+        """
         attempts = 0
         delay = TOKEN_RENEWAL_RETRY_INITIAL_SECONDS
 
