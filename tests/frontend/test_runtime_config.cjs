@@ -38,7 +38,7 @@ const toForecastId = (priceStatId) => {
   if (!priceStatId.includes("hourly_price_")) {
     return null;
   }
-  return priceStatId.replace(/hourly_price_.+$/, "price_forecast");
+  return null;
 };
 
 const gridImportFlows = (source) => {
@@ -264,7 +264,7 @@ test("strict override mode derives IDs from override only", () => {
   assert.deepEqual(actual.overlayIds.importCost, ["fortum:hourly_cost_777"]);
   assert.deepEqual(actual.overlayIds.price, ["fortum:hourly_price_777"]);
   assert.deepEqual(actual.overlayIds.temperature, ["fortum:hourly_temperature_777"]);
-  assert.deepEqual(actual.forecastIds, ["fortum:price_forecast"]);
+  assert.deepEqual(actual.forecastIds, []);
   assert.deepEqual(actual.issues, []);
 });
 
@@ -317,7 +317,7 @@ test("deduplicates repeated IDs across prefs flows", () => {
   assert.deepEqual(actual.overlayIds.importCost, ["fortum:hourly_cost_123"]);
   assert.deepEqual(actual.overlayIds.price, ["fortum:hourly_price_123"]);
   assert.deepEqual(actual.overlayIds.temperature, ["fortum:hourly_temperature_123"]);
-  assert.deepEqual(actual.forecastIds, ["fortum:price_forecast"]);
+  assert.deepEqual(actual.forecastIds, []);
 });
 
 test("export compensation resolves in expected precedence", () => {

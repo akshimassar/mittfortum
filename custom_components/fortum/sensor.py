@@ -34,15 +34,28 @@ async def async_setup_entry(
     data = hass.data[DOMAIN][entry.entry_id]
     coordinator = data["coordinator"]
     price_coordinator = data.get("price_coordinator", coordinator)
+    api_client = data.get("api_client")
     device = data["device"]
     metering_points = data.get("metering_points", [])
     region = entry.data.get(CONF_REGION, DEFAULT_REGION)
+    price_areas = []
+    if api_client is not None and hasattr(api_client, "get_price_areas"):
+        price_areas = api_client.get_price_areas()
 
     # Create sensor entities
     entities = [
-        FortumPriceSensor(price_coordinator, device, region),
-        FortumTomorrowMaxPriceSensor(price_coordinator, device, region),
-        FortumTomorrowMaxPriceTimeSensor(price_coordinator, device),
+        *[
+            FortumPriceSensor(price_coordinator, device, region, area_code)
+            for area_code in price_areas
+        ],
+        *[
+            FortumTomorrowMaxPriceSensor(price_coordinator, device, region, area_code)
+            for area_code in price_areas
+        ],
+        *[
+            FortumTomorrowMaxPriceTimeSensor(price_coordinator, device, area_code)
+            for area_code in price_areas
+        ],
         *[
             FortumMeteringPointSensor(device, metering_point)
             for metering_point in metering_points

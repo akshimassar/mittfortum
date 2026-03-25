@@ -20,11 +20,13 @@ def mock_coordinator():
             date_time=datetime(2026, 3, 10, 12, 0, 0),
             price=0.119,
             price_unit="EUR/kWh",
+            area_code="FI",
         ),
         SpotPricePoint(
             date_time=datetime(2026, 3, 11, 12, 0, 0),
             price=0.125,
             price_unit="EUR/kWh",
+            area_code="FI",
         ),
     ]
     coordinator.last_update_success = True
@@ -54,11 +56,12 @@ class TestFortumPriceSensor:
             coordinator=mock_coordinator,
             device=mock_device,
             region="fi",
+            area_code="FI",
         )
 
     def test_sensor_properties(self, sensor):
         """Test sensor properties."""
-        assert sensor.name == "Price per kWh"
+        assert sensor.name == "Price per kWh FI"
         assert sensor.state_class == SensorStateClass.MEASUREMENT
         assert sensor.native_unit_of_measurement == "EUR/kWh"
 
@@ -79,12 +82,14 @@ class TestFortumPriceSensor:
                 date_time=datetime.now(),
                 price=0.1,
                 price_unit=None,
+                area_code="SE3",
             )
         ]
         sensor = FortumPriceSensor(
             coordinator=mock_coordinator,
             device=mock_device,
             region="se",
+            area_code="SE3",
         )
 
         assert sensor.native_unit_of_measurement == "SEK/kWh"

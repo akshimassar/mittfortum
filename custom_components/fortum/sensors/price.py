@@ -25,23 +25,35 @@ class FortumPriceSensor(FortumEntity, SensorEntity):
         coordinator: SpotPriceSyncCoordinator,
         device: FortumDevice,
         region: str,
+        area_code: str,
     ) -> None:
         """Initialize price sensor."""
+        self._area_code = area_code.upper()
         super().__init__(
             coordinator=coordinator,
             device=device,
-            entity_key=PRICE_SENSOR_KEY,
-            name="Price per kWh",
+            entity_key=f"{PRICE_SENSOR_KEY}_{self._area_code.lower()}",
+            name=f"Price per kWh {self._area_code}",
         )
         self._fallback_unit = f"{get_currency_for_region(region)}/kWh"
 
-    def _current_price_point(self) -> SpotPricePoint | None:
-        """Return current price point (or next future point if none started yet)."""
+    def _area_price_points(self) -> list[SpotPricePoint]:
+        """Return price points for this entity area code."""
         data = cast(list[SpotPricePoint] | None, self.coordinator.data)
         if not data:
-            return None
+            return []
+        return [
+            point
+            for point in data
+            if isinstance(point.area_code, str)
+            and point.area_code.strip().upper() == self._area_code
+        ]
 
-        price_points = data
+    def _current_price_point(self) -> SpotPricePoint | None:
+        """Return current price point (or next future point if none started yet)."""
+        price_points = self._area_price_points()
+        if not price_points:
+            return None
 
         latest_point = price_points[-1]
         now = (
@@ -86,11 +98,9 @@ class FortumPriceSensor(FortumEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return additional state attributes."""
-        data = cast(list[SpotPricePoint] | None, self.coordinator.data)
-        if not data:
+        price_points = self._area_price_points()
+        if not price_points:
             return None
-
-        price_points = data
 
         latest_date = price_points[-1].date_time
         now = (
@@ -100,6 +110,7 @@ class FortumPriceSensor(FortumEntity, SensorEntity):
         )
 
         return {
+            "price_area": self._area_code,
             "total_records_with_price": len(price_points),
             "latest_date": latest_date.isoformat(),
             "has_future_price": latest_date > now,

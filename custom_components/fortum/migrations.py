@@ -150,3 +150,41 @@ async def async_migrate_unique_ids_to_entry_id(
             sorted(matched_fortum_identifiers),
             target_identifier,
         )
+
+
+async def async_remove_legacy_spot_price_entities(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+) -> None:
+    """Remove legacy non-area spot-price entities from the entity registry."""
+    config = getattr(hass, "config", None)
+    if config is None or not hasattr(config, "config_dir"):
+        _LOGGER.debug(
+            "skipping legacy spot-price cleanup because hass config storage "
+            "is unavailable"
+        )
+        return
+
+    registry = entity_registry.async_get(hass)
+    entity_entries = list(
+        entity_registry.async_entries_for_config_entry(registry, entry.entry_id)
+    )
+
+    legacy_unique_ids = {
+        f"{entry.entry_id}_price_per_kwh",
+        f"{entry.entry_id}_tomorrow_max_price",
+        f"{entry.entry_id}_tomorrow_max_price_time",
+    }
+
+    for entity_entry in entity_entries:
+        if entity_entry.platform != DOMAIN:
+            continue
+        if entity_entry.unique_id not in legacy_unique_ids:
+            continue
+
+        registry.async_remove(entity_entry.entity_id)
+        _LOGGER.info(
+            "removed legacy spot-price entity entity_id=%s unique_id=%s",
+            entity_entry.entity_id,
+            entity_entry.unique_id,
+        )

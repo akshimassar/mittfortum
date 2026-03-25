@@ -263,6 +263,7 @@ class SpotPricePoint:
     date_time: datetime
     price: float
     price_unit: str | None = None
+    area_code: str = ""
 
 
 @dataclass

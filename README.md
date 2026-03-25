@@ -30,7 +30,7 @@ Built-in energy dashboard is also supported:
 - **Energy Dashboard compatible**: Imported hourly consumption and cost are written as Home Assistant long-term statistics for Energy Dashboard and historical charts.
 - **Multi-meter support**: Creates separate statistics series for each metering point found in your Fortum account.
 - **Current electricity price**: Imports Fortum 15-minute spot price data and updates it in Home Assistant every 5 minutes.
-- **Price forecast statistics**: Writes hourly aggregated spot-price forecast statistics (`mean`, `min`, `max`) to `fortum:price_forecast` from fetched price windows. Fortum usually provides prices for current day and tomorrow, with tomorrow typically published around 15:00 local time.
+- **Price forecast statistics**: Writes hourly aggregated spot-price forecast statistics (`mean`, `min`, `max`) to area-scoped statistics (`fortum:price_forecast_<area>`) from fetched price windows. Fortum usually provides prices for current day and tomorrow, with tomorrow typically published around 15:00 local time.
 
 ## Installation
 
@@ -91,10 +91,11 @@ For manual Energy setup, add Fortum hourly statistics under Grid consumption:
 
 The integration creates these regular entities:
 
-- **Price per kWh Sensor** (`sensor`): Latest spot price, refreshed by the price coordinator every 5 minutes.
-- **Tomorrow Max Price** (`sensor`): Maximum published spot price for tomorrow; unavailable until tomorrow prices are published.
-- **Tomorrow Max Price Time** (`sensor`, timestamp): Timestamp for tomorrow's maximum spot price; unavailable until tomorrow prices are published.
+- **Price per kWh <AREA>** (`sensor`): Latest spot price for each discovered price area, refreshed by the price coordinator every 5 minutes.
+- **Tomorrow Max Price <AREA>** (`sensor`): Maximum published spot price for tomorrow per area; unavailable until tomorrow prices are published.
+- **Tomorrow Max Price Time <AREA>** (`sensor`, timestamp): Timestamp for tomorrow's maximum spot price per area; unavailable until tomorrow prices are published.
 - Together with the dashboard tomorrow-price graph, these sensors expose tomorrow peak pricing directly for automations and planning.
+- Spot-price entities and forecast statistics are only created when explicit `priceArea` values are available in Fortum session data.
 
 Additionally, it imports hourly Recorder statistics for each available metering point:
 
@@ -106,7 +107,7 @@ These appear in Home Assistant as **"Entity without state"** entities (statistic
 - `fortum:hourly_cost_<metering_point_no>`
 - `fortum:hourly_price_<metering_point_no>`
 - `fortum:hourly_temperature_<metering_point_no>`
-- `fortum:price_forecast` (hourly spot-price forecast aggregation)
+- `fortum:price_forecast_<area>` (hourly spot-price forecast aggregation)
 
 If `Debug entities` is enabled in integration options, one debug sensor and two debug buttons are exposed:
 

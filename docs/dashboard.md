@@ -52,3 +52,10 @@ Adaptive graph resolution is chosen by visible range and chart width.
 - If any required device series has no sub-hour data, graph falls back to hourly mode.
 - Grid flows/cost and Fortum price/temperature overlays are queried hourly and aligned to graph buckets.
 - At 15-minute scale, labels and tooltip time ranges include minutes (for example `14:15-14:30`).
+
+## Tomorrow Price Graph Data Source
+
+- The tomorrow-price card reads only area-scoped forecast statistics with id format `fortum:price_forecast_<area>`.
+- Legacy non-area forecast statistic id (`fortum:price_forecast`) is intentionally excluded.
+- Multiple detected area forecast series are rendered on a single card.
+- If no area-scoped forecast statistics are available, the card shows no forecast graph.

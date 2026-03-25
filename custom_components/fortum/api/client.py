@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import logging
 import re
+from datetime import date as date_cls
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 from zoneinfo import ZoneInfo
@@ -67,7 +68,7 @@ class FortumAPIClient:
         self._auth_client = auth_client
         self._endpoints = APIEndpoints.for_region(getattr(auth_client, "region", "se"))
         self._earliest_available_by_metering_point: dict[str, datetime] = {}
-        self._last_price_forecast_digest: str | None = None
+        self._last_price_forecast_digest_by_area: dict[str, str] = {}
         self._last_hourly_stats_digest: str | None = None
 
     async def get_customer_id(self) -> str:
@@ -300,6 +301,9 @@ class FortumAPIClient:
         """Clear all Fortum hourly statistics for discovered metering points."""
         metering_points = await self.get_metering_points()
         statistic_ids: list[str] = [self._build_price_forecast_statistic_id()]
+        for area_code in self._resolve_price_areas():
+            statistic_ids.append(self._build_price_forecast_statistic_id(area_code))
+
         for point in metering_points:
             statistic_ids.extend(
                 [
@@ -329,7 +333,7 @@ class FortumAPIClient:
         except TimeoutError as exc:
             raise APIError("Timed out while clearing statistics") from exc
 
-        self._last_price_forecast_digest = None
+        self._last_price_forecast_digest_by_area.clear()
         self._last_hourly_stats_digest = None
 
         return len(statistic_ids)
@@ -1024,9 +1028,15 @@ class FortumAPIClient:
         return f"{DOMAIN}:hourly_temperature_{suffix}"
 
     @staticmethod
-    def _build_price_forecast_statistic_id() -> str:
+    def _build_price_forecast_statistic_id(area_code: str | None = None) -> str:
         """Build stable statistic_id for spot-price forecast data."""
-        return f"{DOMAIN}:price_forecast"
+        if not area_code:
+            return f"{DOMAIN}:price_forecast"
+
+        suffix = re.sub(r"[^0-9a-z_]", "_", area_code.lower()).strip("_")
+        if not suffix:
+            return f"{DOMAIN}:price_forecast"
+        return f"{DOMAIN}:price_forecast_{suffix}"
 
     @staticmethod
     def _normalize_temperature_unit(unit: str) -> str:
@@ -1047,19 +1057,58 @@ class FortumAPIClient:
         # once Fortum publishes them (typically around 15:00 local time).
         from_date = (local_now - timedelta(days=1)).date()
         to_date = (local_now + timedelta(days=2)).date()
-        price_area = self._resolve_price_area()
+        area_codes = self._resolve_price_areas()
+        if not area_codes:
+            _LOGGER.debug(
+                "price area not available in session payload; skipping spot price fetch"
+            )
+            return []
+
+        all_price_data: list[SpotPricePoint] = []
+        errors: list[str] = []
+        for area_code in area_codes:
+            area_price_data = await self._fetch_price_data_for_area(
+                area_code,
+                from_date,
+                to_date,
+            )
+            if area_price_data is None:
+                errors.append(area_code)
+                continue
+            if not area_price_data:
+                continue
+
+            self._record_price_forecast_statistics(area_code, area_price_data)
+            all_price_data.extend(area_price_data)
+
+        if errors and not all_price_data:
+            raise APIError(
+                "Failed to fetch spot price data for configured price areas: "
+                + ", ".join(errors)
+            )
+
+        all_price_data.sort(key=lambda point: (point.date_time, point.area_code))
+        return all_price_data
+
+    async def _fetch_price_data_for_area(
+        self,
+        area_code: str,
+        from_date: date_cls,
+        to_date: date_cls,
+    ) -> list[SpotPricePoint] | None:
+        """Fetch spot prices for one explicit area code."""
         _LOGGER.debug(
             "fetching price data area=%s from_date=%s to_date=%s",
-            price_area,
+            area_code,
             from_date,
             to_date,
         )
-        last_error: APIError | None = None
 
+        last_error: APIError | None = None
         for resolution in PRICE_RESOLUTIONS:
             try:
                 url = self._endpoints.get_spot_prices_url(
-                    price_area=price_area,
+                    price_area=area_code,
                     from_date=from_date,
                     to_date=to_date,
                     resolution=resolution,
@@ -1075,6 +1124,14 @@ class FortumAPIClient:
 
                 for area_payload in data:
                     if not isinstance(area_payload, dict):
+                        continue
+
+                    payload_area = area_payload.get("priceArea")
+                    if not isinstance(payload_area, str):
+                        continue
+
+                    normalized_payload_area = payload_area.strip().upper()
+                    if normalized_payload_area != area_code:
                         continue
 
                     price_unit = area_payload.get("priceUnit")
@@ -1102,35 +1159,40 @@ class FortumAPIClient:
                                 date_time=at_utc.astimezone(local_tz),
                                 price=float(total_price),
                                 price_unit=str(price_unit) if price_unit else None,
+                                area_code=area_code,
                             )
                         )
 
                 if price_data:
                     price_data.sort(key=lambda point: point.date_time)
                     _LOGGER.debug(
-                        "fetched price data using resolution %s: records=%d "
+                        "fetched price data area=%s using resolution %s: records=%d "
                         "first=%s last=%s",
+                        area_code,
                         resolution,
                         len(price_data),
                         _fmt_day(price_data[0].date_time),
                         _fmt_day(price_data[-1].date_time),
                     )
-                    self._record_price_forecast_statistics(price_data)
                     return price_data
             except APIError as exc:
                 last_error = exc
                 _LOGGER.debug(
-                    "price fetch failed at resolution %s: %s",
+                    "price fetch failed area=%s resolution=%s: %s",
+                    area_code,
                     resolution,
                     exc,
                 )
 
         if last_error is not None:
-            raise APIError(f"Failed to fetch price data: {last_error}") from last_error
+            _LOGGER.warning(
+                "price fetch failed area=%s error=%s", area_code, last_error
+            )
+            return None
 
         _LOGGER.debug(
             "no price data records area=%s from_date=%s to_date=%s",
-            price_area,
+            area_code,
             from_date,
             to_date,
         )
@@ -1138,6 +1200,7 @@ class FortumAPIClient:
 
     def _record_price_forecast_statistics(
         self,
+        area_code: str,
         price_data: list[SpotPricePoint],
     ) -> None:
         """Push spot-price data as hourly aggregated recorder statistics."""
@@ -1180,9 +1243,9 @@ class FortumAPIClient:
         metadata = cast(
             "StatisticMetaData",
             {
-                "statistic_id": self._build_price_forecast_statistic_id(),
+                "statistic_id": self._build_price_forecast_statistic_id(area_code),
                 "source": DOMAIN,
-                "name": "Fortum Price Forecast",
+                "name": f"Fortum Price Forecast {area_code}",
                 "unit_of_measurement": unit,
                 "unit_class": None,
                 "has_mean": True,
@@ -1206,25 +1269,33 @@ class FortumAPIClient:
             ],
         ]
         digest = hashlib.sha256(";".join(digest_parts).encode("utf-8")).hexdigest()
-        if digest == self._last_price_forecast_digest:
+        last_digest = self._last_price_forecast_digest_by_area.get(area_code)
+        if digest == last_digest:
             return
 
         statistic_rows = cast("list[StatisticData]", rows)
         async_add_external_statistics(self._hass, metadata, statistic_rows)
-        self._last_price_forecast_digest = digest
+        self._last_price_forecast_digest_by_area[area_code] = digest
         first_day = _fmt_day(cast("datetime", rows[0]["start"]))
         last_day = _fmt_day(cast("datetime", rows[-1]["start"]))
         _LOGGER.debug(
-            "wrote price forecast stats statistic_id=%s rows=%d first=%s last=%s",
+            "wrote price forecast stats area=%s statistic_id=%s "
+            "rows=%d first=%s last=%s",
+            area_code,
             metadata["statistic_id"],
             len(rows),
             first_day,
             last_day,
         )
 
-    def _resolve_price_area(self) -> str:
-        """Resolve price area from session payload or region fallback."""
+    def get_price_areas(self) -> list[str]:
+        """Return explicit price areas from session payload."""
+        return self._resolve_price_areas()
+
+    def _resolve_price_areas(self) -> list[str]:
+        """Resolve explicit price areas from authenticated session payload."""
         session_data = self._auth_client.session_data or {}
+        areas: list[str] = []
         if isinstance(session_data, dict):
             user_data = session_data.get("user")
             if isinstance(user_data, dict):
@@ -1244,13 +1315,11 @@ class FortumAPIClient:
                                     break
                                 value = value.get(key)
                             if isinstance(value, str) and value.strip():
-                                return value.strip().upper()
+                                area_code = value.strip().upper()
+                                if area_code and area_code not in areas:
+                                    areas.append(area_code)
 
-        region_defaults = {
-            "fi": "FI",
-            "se": "SE3",
-        }
-        return region_defaults.get(self._endpoints.profile.code, "FI")
+        return areas
 
     async def _get(
         self,

@@ -43,7 +43,8 @@ custom_components/fortum/
 - Handles authenticated API calls and retry/error handling.
 - Imports hourly external statistics per metering point.
 - Maintains cumulative `sum` for hourly consumption/cost statistics.
-- Writes `fortum:price_forecast` statistics from fetched spot-price windows.
+- Writes area-scoped `fortum:price_forecast_<area>` statistics from fetched spot-price windows.
+- Requires explicit `priceArea` values from Fortum session payload for spot-price fetches (no region fallback).
 - Uses a 14-day recent window and 14-day chunks for historical catch-up.
 - Fortum API can return GraphQL errors or take over 30 seconds for larger windows (observed even around 30 days).
 
@@ -108,6 +109,7 @@ This keeps:
 ### Sensors (`sensors/*`)
 - `Statistics Last Sync` is diagnostic and only created when `Debug entities` is enabled.
 - `Tomorrow Max Price` and `Tomorrow Max Price Time` are based on tomorrow points in spot-price coordinator data and remain unavailable until tomorrow prices are published.
+- Spot-price sensors are created per area (`<AREA>` suffix in entity names/unique IDs) and legacy non-area spot entities are removed by migration.
 
 ### Models (`models.py`)
 - Typed models for API payloads.

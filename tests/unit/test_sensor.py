@@ -9,7 +9,12 @@ from custom_components.fortum.const import (
     DOMAIN,
 )
 from custom_components.fortum.sensor import async_setup_entry
-from custom_components.fortum.sensors import FortumStatisticsLastSyncSensor
+from custom_components.fortum.sensors import (
+    FortumPriceSensor,
+    FortumStatisticsLastSyncSensor,
+    FortumTomorrowMaxPriceSensor,
+    FortumTomorrowMaxPriceTimeSensor,
+)
 
 
 async def test_sensor_setup_excludes_statistics_last_sync_when_debug_disabled(
@@ -34,8 +39,8 @@ async def test_sensor_setup_excludes_statistics_last_sync_when_debug_disabled(
 
     captured_entities = []
 
-    def _async_add_entities(entities, update_before_add=False):
-        captured_entities.extend(entities)
+    def _async_add_entities(new_entities, update_before_add=False):
+        captured_entities.extend(new_entities)
 
     await async_setup_entry(mock_hass, entry, _async_add_entities)
 
@@ -67,12 +72,73 @@ async def test_sensor_setup_includes_statistics_last_sync_when_debug_enabled(
 
     captured_entities = []
 
-    def _async_add_entities(entities, update_before_add=False):
-        captured_entities.extend(entities)
+    def _async_add_entities(new_entities, update_before_add=False):
+        captured_entities.extend(new_entities)
 
     await async_setup_entry(mock_hass, entry, _async_add_entities)
 
     assert any(
         isinstance(entity, FortumStatisticsLastSyncSensor)
         for entity in captured_entities
+    )
+
+
+async def test_sensor_setup_creates_spot_entities_per_price_area(mock_hass) -> None:
+    """Spot-price entities should be created per explicit area code."""
+    entry = Mock()
+    entry.entry_id = "entry-id"
+    entry.data = {CONF_REGION: DEFAULT_REGION}
+    entry.options = {CONF_DEBUG_ENTITIES: False}
+
+    api_client = Mock()
+    api_client.get_price_areas.return_value = ["SE3", "SE4"]
+
+    mock_hass.data = {
+        DOMAIN: {
+            entry.entry_id: {
+                "coordinator": Mock(),
+                "price_coordinator": Mock(),
+                "device": Mock(),
+                "api_client": api_client,
+                "metering_points": [],
+            }
+        }
+    }
+
+    captured_entities = []
+
+    def _async_add_entities(new_entities, update_before_add=False):
+        captured_entities.extend(new_entities)
+
+    await async_setup_entry(mock_hass, entry, _async_add_entities)
+
+    assert (
+        len(
+            [
+                entity
+                for entity in captured_entities
+                if isinstance(entity, FortumPriceSensor)
+            ]
+        )
+        == 2
+    )
+    assert (
+        len(
+            [
+                entity
+                for entity in captured_entities
+                if isinstance(entity, FortumTomorrowMaxPriceSensor)
+            ]
+        )
+        == 2
+    )
+    assert (
+        len(
+            [
+                entity
+                for entity in captured_entities
+                if isinstance(entity, FortumTomorrowMaxPriceTimeSensor)
+            ]
+        )
+        == 2
     )

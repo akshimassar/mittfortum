@@ -67,7 +67,10 @@ from .device import FortumDevice
 from .exceptions import AuthenticationError, FortumError
 from .log_capture import ensure_diagnostics_log_capture, remove_diagnostics_log_capture
 from .logging_utils import ensure_function_name_log_prefix
-from .migrations import async_migrate_unique_ids_to_entry_id
+from .migrations import (
+    async_migrate_unique_ids_to_entry_id,
+    async_remove_legacy_spot_price_entities,
+)
 from .models import MeteringPoint
 
 _LOGGER = logging.getLogger(__name__)
@@ -133,6 +136,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             session_data=auth_client.session_data,
             username=username,
         )
+        await async_remove_legacy_spot_price_entities(hass, entry)
         device = FortumDevice(entry.entry_id)
 
         # Create data coordinator

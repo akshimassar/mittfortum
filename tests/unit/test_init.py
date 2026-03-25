@@ -59,6 +59,10 @@ class TestInit:
                 "custom_components.fortum.async_migrate_unique_ids_to_entry_id",
                 new=AsyncMock(),
             ),
+            patch(
+                "custom_components.fortum.async_remove_legacy_spot_price_entities",
+                new=AsyncMock(),
+            ),
         ):
             mock_auth_instance = AsyncMock()
             mock_auth_instance.session_data = {}
@@ -120,6 +124,10 @@ class TestInit:
             ) as mock_schedule_dashboard_creation,
             patch(
                 "custom_components.fortum.async_migrate_unique_ids_to_entry_id",
+                new=AsyncMock(),
+            ),
+            patch(
+                "custom_components.fortum.async_remove_legacy_spot_price_entities",
                 new=AsyncMock(),
             ),
         ):

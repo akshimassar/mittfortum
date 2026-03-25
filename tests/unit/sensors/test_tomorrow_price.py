@@ -41,16 +41,19 @@ def test_tomorrow_max_price_sensors_with_tomorrow_data() -> None:
                 date_time=now,
                 price=0.12,
                 price_unit="EUR/kWh",
+                area_code="FI",
             ),
             SpotPricePoint(
                 date_time=tomorrow_start + timedelta(hours=5),
                 price=0.30,
                 price_unit="EUR/kWh",
+                area_code="FI",
             ),
             SpotPricePoint(
                 date_time=tomorrow_start + timedelta(hours=9),
                 price=0.25,
                 price_unit="EUR/kWh",
+                area_code="FI",
             ),
         ]
     )
@@ -60,19 +63,21 @@ def test_tomorrow_max_price_sensors_with_tomorrow_data() -> None:
         coordinator=coordinator,
         device=device,
         region="fi",
+        area_code="FI",
     )
     time_sensor = FortumTomorrowMaxPriceTimeSensor(
         coordinator=coordinator,
         device=device,
+        area_code="FI",
     )
 
-    assert price_sensor.name == "Tomorrow Max Price"
+    assert price_sensor.name == "Tomorrow Max Price FI"
     assert price_sensor.native_value == 0.30
     assert price_sensor.native_unit_of_measurement == "EUR/kWh"
     assert price_sensor.state_class == SensorStateClass.MEASUREMENT
     assert price_sensor.available is True
 
-    assert time_sensor.name == "Tomorrow Max Price Time"
+    assert time_sensor.name == "Tomorrow Max Price Time FI"
     assert time_sensor.native_value == tomorrow_start + timedelta(hours=5)
     assert time_sensor.device_class == SensorDeviceClass.TIMESTAMP
     assert time_sensor.available is True
@@ -87,6 +92,7 @@ def test_tomorrow_max_price_sensors_unavailable_without_tomorrow_data() -> None:
                 date_time=now,
                 price=0.12,
                 price_unit="EUR/kWh",
+                area_code="FI",
             )
         ]
     )
@@ -96,10 +102,12 @@ def test_tomorrow_max_price_sensors_unavailable_without_tomorrow_data() -> None:
         coordinator=coordinator,
         device=device,
         region="fi",
+        area_code="FI",
     )
     time_sensor = FortumTomorrowMaxPriceTimeSensor(
         coordinator=coordinator,
         device=device,
+        area_code="FI",
     )
 
     assert price_sensor.native_value is None

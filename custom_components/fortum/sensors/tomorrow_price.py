@@ -27,13 +27,41 @@ if TYPE_CHECKING:
 class _FortumTomorrowPriceEntity(FortumEntity, SensorEntity):
     """Base entity with tomorrow price helpers."""
 
-    def _tomorrow_price_points(self) -> list[SpotPricePoint]:
-        """Return price points for tomorrow in the point timezone."""
+    def __init__(
+        self,
+        coordinator: SpotPriceSyncCoordinator,
+        device: FortumDevice,
+        entity_key: str,
+        name: str,
+        area_code: str,
+    ) -> None:
+        """Initialize tomorrow-price base entity."""
+        self._area_code = area_code.upper()
+        super().__init__(
+            coordinator=coordinator,
+            device=device,
+            entity_key=f"{entity_key}_{self._area_code.lower()}",
+            name=f"{name} {self._area_code}",
+        )
+
+    def _area_price_points(self) -> list[SpotPricePoint]:
+        """Return price points for this entity area code."""
         data = cast(list[SpotPricePoint] | None, self.coordinator.data)
         if not data:
             return []
 
-        price_points = data
+        return [
+            point
+            for point in data
+            if isinstance(point.area_code, str)
+            and point.area_code.strip().upper() == self._area_code
+        ]
+
+    def _tomorrow_price_points(self) -> list[SpotPricePoint]:
+        """Return price points for tomorrow in the point timezone."""
+        price_points = self._area_price_points()
+        if not price_points:
+            return []
 
         latest_point = price_points[-1]
         now = (
@@ -78,6 +106,7 @@ class FortumTomorrowMaxPriceSensor(_FortumTomorrowPriceEntity):
         coordinator: SpotPriceSyncCoordinator,
         device: FortumDevice,
         region: str,
+        area_code: str,
     ) -> None:
         """Initialize tomorrow max price sensor."""
         super().__init__(
@@ -85,6 +114,7 @@ class FortumTomorrowMaxPriceSensor(_FortumTomorrowPriceEntity):
             device=device,
             entity_key=TOMORROW_MAX_PRICE_SENSOR_KEY,
             name="Tomorrow Max Price",
+            area_code=area_code,
         )
         self._fallback_unit = f"{get_currency_for_region(region)}/kWh"
 
@@ -115,6 +145,7 @@ class FortumTomorrowMaxPriceTimeSensor(_FortumTomorrowPriceEntity):
         self,
         coordinator: SpotPriceSyncCoordinator,
         device: FortumDevice,
+        area_code: str,
     ) -> None:
         """Initialize tomorrow max price time sensor."""
         super().__init__(
@@ -122,6 +153,7 @@ class FortumTomorrowMaxPriceTimeSensor(_FortumTomorrowPriceEntity):
             device=device,
             entity_key=TOMORROW_MAX_PRICE_TIME_SENSOR_KEY,
             name="Tomorrow Max Price Time",
+            area_code=area_code,
         )
 
     @property

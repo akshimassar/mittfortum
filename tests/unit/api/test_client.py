@@ -268,12 +268,14 @@ class TestFortumAPIClient:
         assert result[0].price == 4.23
         assert result[1].price == 4.50
         assert result[0].price_unit == "c/kWh"
+        assert result[0].area_code == "FI"
         called_url = mock_get.call_args.args[0]
         assert "shared.spotPrices.listPriceAreaSpotPrices" in called_url
         assert "PER_15_MIN" in called_url
         mock_add_stats.assert_called_once()
         assert (
-            mock_add_stats.call_args.args[1]["statistic_id"] == "fortum:price_forecast"
+            mock_add_stats.call_args.args[1]["statistic_id"]
+            == "fortum:price_forecast_fi"
         )
         assert len(mock_add_stats.call_args.args[2]) == 1
         assert mock_add_stats.call_args.args[2][0]["start"].minute == 0
@@ -282,12 +284,24 @@ class TestFortumAPIClient:
         assert mock_add_stats.call_args.args[2][0]["min"] == 4.23
         assert mock_add_stats.call_args.args[2][0]["max"] == 4.50
 
-    async def test_resolve_price_area_fallback(self, mock_hass, mock_auth_client):
-        """Test fallback price area by region profile."""
+    async def test_get_price_data_without_price_area_returns_empty(
+        self, mock_hass, mock_auth_client
+    ):
+        """Spot price data should be skipped when session has no price area."""
         client = FortumAPIClient(mock_hass, mock_auth_client)
         mock_auth_client.session_data = {}
 
-        assert client._resolve_price_area() == "SE3"
+        with (
+            patch.object(client, "_get") as mock_get,
+            patch(
+                "custom_components.fortum.api.client.async_add_external_statistics"
+            ) as mock_add_stats,
+        ):
+            result = await client.get_price_data()
+
+        assert result == []
+        mock_get.assert_not_called()
+        mock_add_stats.assert_not_called()
 
     def test_record_price_forecast_statistics_skips_unchanged_payload(
         self,
@@ -312,8 +326,8 @@ class TestFortumAPIClient:
         with patch(
             "custom_components.fortum.api.client.async_add_external_statistics"
         ) as mock_add_stats:
-            client._record_price_forecast_statistics(price_data)
-            client._record_price_forecast_statistics(price_data)
+            client._record_price_forecast_statistics("FI", price_data)
+            client._record_price_forecast_statistics("FI", price_data)
 
             assert mock_add_stats.call_count == 1
 
@@ -329,7 +343,7 @@ class TestFortumAPIClient:
                     price_unit="EUR/kWh",
                 ),
             ]
-            client._record_price_forecast_statistics(updated_price_data)
+            client._record_price_forecast_statistics("FI", updated_price_data)
             assert mock_add_stats.call_count == 2
 
     async def test_trpc_endpoints_exclude_auth_headers(
