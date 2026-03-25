@@ -1,4 +1,14 @@
 repos:
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
+        require_serial: true
+        files: ^(custom_components/fortum/.*\.py|tests/.*\.py|pyproject\.toml|\.pre-commit-config\.yaml)$
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
