@@ -7,7 +7,7 @@ Written by AI, curated by software engineer.
 
 ## Country Support
 
-- Supported countries are currently Sweden (SE) and Finland (FI).
+- Supported countries are currently Sweden (SE), Finland (FI), and Norway (NO).
 - If you need support for another country, please create a GitHub issue using the **Country support request** issue template.
 
 ## Dashboard

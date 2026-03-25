@@ -13,7 +13,7 @@
         "data": {
           "username": "Fortum username",
           "password": "Fortum password",
-          "region": "Fortum region (se or fi)",
+          "region": "Fortum region (se, fi, or no)",
           "create_dashboard": "Create Fortum dashboard",
           "debug_entities": "Show debug entities",
           "debug_logging": "Enable detailed debug logging",
@@ -28,7 +28,7 @@
         "data": {
           "username": "Fortum username",
           "password": "Fortum password",
-          "region": "Fortum region (se or fi)",
+          "region": "Fortum region (se, fi, or no)",
           "create_dashboard": "Create Fortum dashboard",
           "debug_entities": "Show debug entities",
           "debug_logging": "Enable detailed debug logging",

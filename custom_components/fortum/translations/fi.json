@@ -13,7 +13,7 @@
         "data": {
           "username": "Fortum-kayttajanimi",
           "password": "Fortum-salasana",
-          "region": "Fortum-alue (se tai fi)",
+          "region": "Fortum-alue (se, fi tai no)",
           "create_dashboard": "Luo Fortum-koontinakyma",
           "debug_entities": "Nayta debug-entiteetit",
           "debug_logging": "Ota yksityiskohtainen debug-loki kayttoon",
@@ -28,7 +28,7 @@
         "data": {
           "username": "Fortum-kayttajanimi",
           "password": "Fortum-salasana",
-          "region": "Fortum-alue (se tai fi)",
+          "region": "Fortum-alue (se, fi tai no)",
           "create_dashboard": "Luo Fortum-koontinakyma",
           "debug_entities": "Nayta debug-entiteetit",
           "debug_logging": "Ota yksityiskohtainen debug-loki kayttoon",

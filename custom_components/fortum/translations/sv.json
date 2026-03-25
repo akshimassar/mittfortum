@@ -13,7 +13,7 @@
         "data": {
           "username": "Fortum-anvandarnamn",
           "password": "Fortum-losenord",
-          "region": "Fortum-region (se eller fi)",
+          "region": "Fortum-region (se, fi eller no)",
           "create_dashboard": "Skapa Fortum-dashboard",
           "debug_entities": "Visa debug-entiteter",
           "debug_logging": "Aktivera detaljerad debug-loggning",
@@ -28,7 +28,7 @@
         "data": {
           "username": "Fortum-anvandarnamn",
           "password": "Fortum-losenord",
-          "region": "Fortum-region (se eller fi)",
+          "region": "Fortum-region (se, fi eller no)",
           "create_dashboard": "Skapa Fortum-dashboard",
           "debug_entities": "Visa debug-entiteter",
           "debug_logging": "Aktivera detaljerad debug-loggning",
