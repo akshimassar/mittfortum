@@ -26,5 +26,13 @@ If applicable, add screenshots to help explain your problem.
 **Home-Assistant (please complete the following information):**
  - Version [e.g. 2024.01.01]
 
+**Diagnostics (required)**
+Please attach diagnostics for the Fortum integration:
+1. Go to **Integration** page in Home Assistant.
+2. Open the Fortum integration card.
+3. Click the **three dots** menu.
+4. Select **Download diagnostics**.
+5. Attach the downloaded file to this issue.
+
 **Additional context**
 Add any other context about the problem here.

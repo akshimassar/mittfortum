@@ -18,3 +18,9 @@ A clear and concise description of any alternative solutions or features you've 
 
 **Additional context**
 Add any other context or screenshots about the feature request here.
+
+If the request is based on current integration behavior, you can also attach diagnostics:
+1. Go to **Integration** page in Home Assistant.
+2. Open the Fortum integration card.
+3. Click the **three dots** menu.
+4. Select **Download diagnostics**.

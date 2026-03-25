@@ -122,6 +122,18 @@ For minimal AI/code-agent instructions, see `AGENTS.md`.
 
 Fork note: this repository is a fork of the original project at `https://github.com/selleronom/mittfortum`.
 
+## Troubleshooting and Diagnostics
+
+If you open an issue, please attach Home Assistant diagnostics for this integration instead of raw log excerpts.
+
+1. Go to **Integration** page in Home Assistant.
+2. Open the Fortum integration card.
+3. Click the **three dots** menu.
+4. Select **Download diagnostics**.
+5. Attach the downloaded diagnostics file to your GitHub issue.
+
+Diagnostics include integration runtime context and recent Fortum integration logs with redaction applied for sensitive fields.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.

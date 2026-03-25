@@ -21,11 +21,12 @@ Describe what fails today (config flow, authentication, missing data, etc.).
 
 Please run the reproduction using region `fi` in the integration setup.
 
-Before posting logs, enable integration option **Enable detailed debug logging**.
-
-Then reproduce the issue and paste Fortum integration logs here (from `custom_components.fortum`).
-
-> Do not include passwords, tokens, cookies, or other secrets.
+Then attach Fortum diagnostics instead of posting raw logs:
+1. Go to **Integration** page in Home Assistant.
+2. Open the Fortum integration card.
+3. Click the **three dots** menu.
+4. Select **Download diagnostics**.
+5. Attach the downloaded file to this issue.
 
 ## Additional context
 

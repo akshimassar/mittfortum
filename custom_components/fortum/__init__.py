@@ -65,6 +65,7 @@ from .coordinators import (
 )
 from .device import FortumDevice
 from .exceptions import AuthenticationError, FortumError
+from .log_capture import ensure_diagnostics_log_capture, remove_diagnostics_log_capture
 from .models import MeteringPoint
 
 _LOGGER = logging.getLogger(__name__)
@@ -89,6 +90,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Fortum from a config entry."""
     setup_started = monotonic()
     hass.data.setdefault(DOMAIN, {})
+    ensure_diagnostics_log_capture(hass)
     _apply_debug_logging(entry)
     _LOGGER.debug("Starting Fortum setup for entry_id=%s", entry.entry_id)
 
@@ -202,6 +204,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             stop_result = stop_monitor()
             if isawaitable(stop_result):
                 await stop_result
+
+        if not hass.data[DOMAIN]:
+            remove_diagnostics_log_capture(hass)
 
     return unload_ok
 
