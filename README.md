@@ -3,6 +3,7 @@
 <img src="custom_components/fortum/brand/logo.png" alt="Fortum logo" width="273" />
 
 A Home Assistant custom integration for accessing energy consumption data from Fortum.
+Written by AI, curated by human.
 
 ## Country Support
 
@@ -115,6 +116,8 @@ If `Debug entities` is enabled in integration options, one debug sensor and two 
 - **Clear Statistics** (`button`): Clears imported statistics series for currently discovered metering points.
 
 ## Architecture
+
+This integration code is AI-generated and curated by a software engineer. Components marked with the name suffix "AI coded" indicate AI-authored implementation.
 
 For architecture details, project layout, and contributor-focused development notes, see `docs/development.md`.
 
