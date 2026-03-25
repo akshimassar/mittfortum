@@ -1402,7 +1402,7 @@ class FortumAPIClient:
         if response.status_code == 307:
             self._handle_redirect_response(response)
         elif response.status_code == 401:
-            raise AuthenticationError("Unauthorized (401)")
+            raise AuthenticationError("Unauthorized (401)", status_code=401)
         elif response.status_code == 403:
             raise APIError("Access forbidden - authentication may be required")
         elif response.status_code == 500:

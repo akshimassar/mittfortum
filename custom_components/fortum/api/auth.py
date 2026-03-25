@@ -290,11 +290,6 @@ class OAuth2AuthClient:
             _LOGGER.exception("Authentication failed")
             raise AuthenticationError(f"Authentication failed: {exc}") from exc
 
-    def _is_unauthorized_error(self, exc: Exception) -> bool:
-        """Return True if exception indicates unauthorized credentials (401)."""
-        message = str(exc).lower()
-        return "401" in message or "unauthorized" in message
-
     def _format_exception(self, exc: Exception) -> str:
         """Return a stable exception string, even for empty exception messages."""
         exc_type = type(exc).__name__
@@ -330,7 +325,6 @@ class OAuth2AuthClient:
         self,
         *,
         retry_forever: bool,
-        stop_on_unauthorized: bool = True,
         max_attempts: int | None = None,
     ) -> AuthTokens:
         """Authenticate with exponential backoff and optional attempt cap."""
@@ -343,12 +337,19 @@ class OAuth2AuthClient:
                 return await self._authenticate_once()
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:
-                if self._is_unauthorized_error(exc):
-                    _LOGGER.warning("Authentication unauthorized (401)")
-                    if stop_on_unauthorized:
-                        raise AuthenticationError("Unauthorized (401)") from exc
+            except AuthenticationError:
+                if not retry_forever:
+                    raise
 
+                sleep_for = min(delay, REAUTH_RETRY_MAX_DELAY_SECONDS)
+                _LOGGER.warning(
+                    "Authentication attempt failed: AuthenticationError. "
+                    "Retrying in %.1fs",
+                    sleep_for,
+                )
+                await asyncio.sleep(sleep_for)
+                delay = min(delay * 2, REAUTH_RETRY_MAX_DELAY_SECONDS)
+            except Exception as exc:
                 if (
                     not retry_forever
                     and max_attempts is not None
@@ -838,7 +839,10 @@ class OAuth2AuthClient:
 
                 if response.status_code != 200:
                     if response.status_code == 401:
-                        raise AuthenticationError("Unauthorized (401)")
+                        raise AuthenticationError(
+                            "Unauthorized (401)",
+                            status_code=401,
+                        )
 
                     _LOGGER.error(
                         "Token refresh failed with status %d: %s",
@@ -1034,7 +1038,6 @@ class OAuth2AuthClient:
             if self._auth_mode == SESSION_BASED_TOKEN:
                 await self._authenticate_with_backoff(
                     retry_forever=True,
-                    stop_on_unauthorized=False,
                 )
                 _LOGGER.info("Token re-authentication successful")
                 return
@@ -1049,25 +1052,11 @@ class OAuth2AuthClient:
                 except asyncio.CancelledError:
                     raise
                 except AuthenticationError as exc:
-                    if self._is_unauthorized_error(exc):
-                        _LOGGER.warning(
-                            "Token refresh unauthorized (401); switching to re-auth"
-                        )
-                        break
-
-                    remaining = self.time_until_expiry()
-                    if remaining <= 0:
-                        break
-                    sleep_for = min(refresh_delay, remaining)
                     _LOGGER.warning(
-                        "Proactive token refresh failed: %s. Retrying in %.1fs "
-                        "(token expires in %.1fs)",
+                        "Token refresh authentication failed: %s. Switching to re-auth",
                         exc,
-                        sleep_for,
-                        remaining,
                     )
-                    await asyncio.sleep(sleep_for)
-                    refresh_delay *= 2
+                    break
                 except Exception as exc:
                     remaining = self.time_until_expiry()
                     if remaining <= 0:
@@ -1084,7 +1073,7 @@ class OAuth2AuthClient:
                     refresh_delay *= 2
 
             await self._authenticate_with_backoff(
-                retry_forever=True, stop_on_unauthorized=False
+                retry_forever=True,
             )
             _LOGGER.info("Token re-authentication successful")
             return

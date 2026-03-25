@@ -155,27 +155,23 @@ class TestOAuth2AuthClient:
             with pytest.raises(AuthenticationError):
                 await client.authenticate()
 
-    async def test_authenticate_reuses_backoff_retry_logic(self, mock_hass):
-        """Initial authenticate should use same backoff retry helper."""
+    async def test_authenticate_fails_fast_on_authentication_error(self, mock_hass):
+        """Initial authenticate should not retry AuthenticationError."""
         client = OAuth2AuthClient(
             hass=mock_hass,
             username="test@example.com",
             password="test_password",
         )
 
-        token = Mock()
-        token.expires_in = 3600
-        client._authenticate_once = AsyncMock(
-            side_effect=[AuthenticationError("temp"), token]
-        )
+        client._authenticate_once = AsyncMock(side_effect=AuthenticationError("temp"))
 
         with patch(
             "custom_components.fortum.api.auth.asyncio.sleep", new=AsyncMock()
         ) as mock_sleep:
-            result = await client.authenticate()
+            with pytest.raises(AuthenticationError, match="temp"):
+                await client.authenticate()
 
-        assert result is token
-        mock_sleep.assert_awaited_once_with(5.0)
+        mock_sleep.assert_not_awaited()
 
     async def test_refresh_access_token_session_based(
         self, mock_hass, sample_auth_tokens
@@ -538,7 +534,7 @@ class TestOAuth2AuthClient:
             nonlocal attempts
             attempts += 1
             if attempts == 1:
-                raise AuthenticationError("refresh failed")
+                raise RuntimeError("transient refresh failure")
 
         client.refresh_access_token = AsyncMock(side_effect=_refresh_once_then_succeed)
         client.time_until_expiry = Mock(side_effect=[120.0, 120.0, 120.0])
@@ -570,7 +566,6 @@ class TestOAuth2AuthClient:
         client.refresh_access_token.assert_not_called()
         client._authenticate_with_backoff.assert_awaited_once_with(
             retry_forever=True,
-            stop_on_unauthorized=False,
         )
 
     async def test_scheduler_skips_refresh_for_session_based_auth(self, mock_hass):
@@ -590,11 +585,10 @@ class TestOAuth2AuthClient:
         client.refresh_access_token.assert_not_awaited()
         client._authenticate_with_backoff.assert_awaited_once_with(
             retry_forever=True,
-            stop_on_unauthorized=False,
         )
 
-    async def test_scheduler_switches_to_reauth_on_refresh_401(self, mock_hass):
-        """Refresh 401 should immediately transition to re-auth stage."""
+    async def test_scheduler_switches_to_reauth_on_refresh_auth_error(self, mock_hass):
+        """Refresh auth errors should immediately transition to re-auth stage."""
         client = OAuth2AuthClient(
             hass=mock_hass,
             username="test@example.com",
@@ -604,7 +598,7 @@ class TestOAuth2AuthClient:
 
         client.time_until_expiry = Mock(return_value=120.0)
         client.refresh_access_token = AsyncMock(
-            side_effect=AuthenticationError("Unauthorized (401)")
+            side_effect=AuthenticationError("refresh auth failed")
         )
         client._authenticate_with_backoff = AsyncMock(return_value=Mock())
 
@@ -616,7 +610,6 @@ class TestOAuth2AuthClient:
         client.refresh_access_token.assert_awaited_once()
         client._authenticate_with_backoff.assert_awaited_once_with(
             retry_forever=True,
-            stop_on_unauthorized=False,
         )
         assert mock_sleep.await_count == 0
 
@@ -644,7 +637,6 @@ class TestOAuth2AuthClient:
         ) as mock_sleep:
             await client._authenticate_with_backoff(
                 retry_forever=True,
-                stop_on_unauthorized=False,
             )
 
         delays = [call.args[0] for call in mock_sleep.await_args_list]
