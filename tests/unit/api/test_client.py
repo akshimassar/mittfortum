@@ -340,7 +340,6 @@ class TestFortumAPIClient:
 
         mock_auth_client.access_token = "test_access_token_123"
         mock_auth_client.session_cookies = {"sessionid": "test_session"}
-        mock_auth_client.is_token_expired.return_value = False
 
         client = FortumAPIClient(mock_hass, mock_auth_client)
 
@@ -389,7 +388,6 @@ class TestFortumAPIClient:
 
         mock_auth_client.access_token = "test_access_token_123"
         mock_auth_client.session_cookies = {"sessionid": "test_session"}
-        mock_auth_client.is_token_expired.return_value = False
 
         client = FortumAPIClient(mock_hass, mock_auth_client)
 
@@ -435,7 +433,6 @@ class TestFortumAPIClient:
 
         mock_auth_client.access_token = "test_access_token_123"
         mock_auth_client.session_cookies = {"sessionid": "test_session"}
-        mock_auth_client.is_token_expired.return_value = False
 
         client = FortumAPIClient(mock_hass, mock_auth_client)
 
@@ -476,7 +473,6 @@ class TestFortumAPIClient:
         """Test that tRPC endpoints do NOT receive Authorization headers."""
         mock_auth_client.access_token = "test_access_token_123"
         mock_auth_client.session_cookies = {"sessionid": "test_session"}
-        mock_auth_client.is_token_expired.return_value = False
 
         client = FortumAPIClient(mock_hass, mock_auth_client)
 
@@ -520,7 +516,6 @@ class TestFortumAPIClient:
         """Test that non-tRPC endpoints DO receive Authorization headers."""
         mock_auth_client.access_token = "test_access_token_123"
         mock_auth_client.session_cookies = {"sessionid": "test_session"}
-        mock_auth_client.is_token_expired.return_value = False
 
         client = FortumAPIClient(mock_hass, mock_auth_client)
 
@@ -556,7 +551,6 @@ class TestFortumAPIClient:
         """GET should retry API errors with configured delays."""
         mock_auth_client.access_token = "test_access_token_123"
         mock_auth_client.session_cookies = {"sessionid": "test_session"}
-        mock_auth_client.is_token_expired.return_value = False
 
         client = FortumAPIClient(mock_hass, mock_auth_client)
 
@@ -600,7 +594,6 @@ class TestFortumAPIClient:
         """AuthenticationError should be raised only after final retry attempt."""
         mock_auth_client.access_token = "test_access_token_123"
         mock_auth_client.session_cookies = {"sessionid": "test_session"}
-        mock_auth_client.is_token_expired.return_value = False
 
         client = FortumAPIClient(mock_hass, mock_auth_client)
 
@@ -640,7 +633,6 @@ class TestFortumAPIClient:
         """Final GET attempt should log URL and exception details."""
         mock_auth_client.access_token = "test_access_token_123"
         mock_auth_client.session_cookies = {"sessionid": "test_session"}
-        mock_auth_client.is_token_expired.return_value = False
 
         client = FortumAPIClient(mock_hass, mock_auth_client)
 

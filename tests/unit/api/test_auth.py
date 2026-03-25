@@ -24,40 +24,6 @@ class TestOAuth2AuthClient:
         assert client._password == "test_password"
         assert client._hass == mock_hass
 
-    def test_is_token_expired_no_expiry(self, mock_hass):
-        """Test token expiry check with no expiry set."""
-        client = OAuth2AuthClient(
-            hass=mock_hass,
-            username="test@example.com",
-            password="test_password",
-        )
-
-        assert client.is_token_expired() is True
-
-    @patch("time.time", return_value=1000)
-    def test_is_token_expired_not_expired(self, mock_time, mock_hass):
-        """Test token expiry check when token is not expired."""
-        client = OAuth2AuthClient(
-            hass=mock_hass,
-            username="test@example.com",
-            password="test_password",
-        )
-        client._token_expiry = 2000
-
-        assert client.is_token_expired() is False
-
-    @patch("time.time", return_value=2000)
-    def test_is_token_expired_expired(self, mock_time, mock_hass):
-        """Test token expiry check when token is expired."""
-        client = OAuth2AuthClient(
-            hass=mock_hass,
-            username="test@example.com",
-            password="test_password",
-        )
-        client._token_expiry = 1000
-
-        assert client.is_token_expired() is True
-
     def test_process_token_expiry_uses_server_value_by_default(self, mock_hass):
         """Default mode should trust server expiry timestamps."""
         client = OAuth2AuthClient(

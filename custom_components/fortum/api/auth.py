@@ -117,35 +117,6 @@ class OAuth2AuthClient:
         """Get configured market region."""
         return self._region
 
-    def is_token_expired(self, buffer_seconds: int = 0) -> bool:
-        """Check if the current token is expired or will expire soon.
-
-        Args:
-            buffer_seconds: Number of seconds before actual expiry to consider
-                the token expired. This allows for proactive renewal.
-                Default is 0 for backwards compatibility.
-        """
-        if not self._token_expiry:
-            _LOGGER.debug(
-                "token expiry check: No token expiry set, considering expired"
-            )
-            return True
-
-        current_time = time.time()
-        # Add buffer time for proactive renewal
-        effective_expiry = self._token_expiry - buffer_seconds
-        is_expired = current_time >= effective_expiry
-        seconds_until_refresh = effective_expiry - current_time
-
-        if is_expired:
-            _LOGGER.debug(
-                "token refresh required: refresh_required=%s "
-                "seconds_until_refresh=%.2f",
-                True,
-                seconds_until_refresh,
-            )
-        return is_expired
-
     def _renewal_buffer_seconds(self) -> int:
         """Return proactive renewal buffer: 10% of TTL, at least 15 seconds."""
         if not self._tokens:
@@ -456,9 +427,7 @@ class OAuth2AuthClient:
             )
             _LOGGER.debug("OAuth page status: %d", response.status_code)
 
-            if response.status_code == 302:
-                _LOGGER.debug("OAuth page returned 302 redirect (expected in SSO flow)")
-            elif response.status_code != 200:
+            if response.status_code != 200 and response.status_code != 302:
                 _LOGGER.warning("OAuth page returned %d", response.status_code)
                 # Continue anyway, as authentication might still work
 
