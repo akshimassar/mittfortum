@@ -15,6 +15,7 @@ Guidance for AI/code agents working in this repository.
 - Coordinators: `custom_components/fortum/coordinators.py`
 - Tests: `tests/unit`, `tests/integration`, `tests/e2e`
 - Contributor docs: `docs/development.md`
+- API examples doc: `docs/fortum-api.md`
 
 ## Workflow (Common)
 1. Read relevant files first.

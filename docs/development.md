@@ -2,6 +2,8 @@
 
 This document contains contributor-focused architecture and development notes for the Fortum integration.
 
+For sanitized API request/response examples referenced by this integration, see `docs/fortum-api.md`.
+
 ## Project Structure
 
 ```

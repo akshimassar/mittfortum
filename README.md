@@ -121,6 +121,8 @@ This integration code is AI-generated and curated by a software engineer. Compon
 
 For architecture details, project layout, and contributor-focused development notes, see `docs/development.md`.
 
+For sanitized Fortum API request/response examples used by the integration, see `docs/fortum-api.md`.
+
 For minimal AI/code-agent instructions, see `AGENTS.md`.
 
 Fork note: this repository is a fork of the original project at `https://github.com/selleronom/mittfortum`.
