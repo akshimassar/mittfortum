@@ -37,7 +37,15 @@ class FortumMeteringPointSensor(SensorEntity):
     @property
     def native_value(self) -> str:
         """Return metering point address."""
-        return self._metering_point.address or "Unknown"
+        address = self._metering_point.address
+        area = self._metering_point.price_area
+        if address and area:
+            return f"{address} [{area}]"
+        if address:
+            return address
+        if area:
+            return f"[{area}]"
+        return "Unknown"
 
     @property
     def extra_state_attributes(self) -> dict[str, str] | None:
@@ -47,4 +55,8 @@ class FortumMeteringPointSensor(SensorEntity):
         }
         if self._metering_point.metering_point_id:
             attributes["metering_point_id"] = self._metering_point.metering_point_id
+        if self._metering_point.address:
+            attributes["address"] = self._metering_point.address
+        if self._metering_point.price_area:
+            attributes["price_area"] = self._metering_point.price_area
         return attributes

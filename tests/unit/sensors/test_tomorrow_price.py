@@ -71,13 +71,13 @@ def test_tomorrow_max_price_sensors_with_tomorrow_data() -> None:
         area_code="FI",
     )
 
-    assert price_sensor.name == "Tomorrow Max Price FI"
+    assert price_sensor.name == "Tomorrow Max Price [FI]"
     assert price_sensor.native_value == 0.30
     assert price_sensor.native_unit_of_measurement == "EUR/kWh"
     assert price_sensor.state_class == SensorStateClass.MEASUREMENT
     assert price_sensor.available is True
 
-    assert time_sensor.name == "Tomorrow Max Price Time FI"
+    assert time_sensor.name == "Tomorrow Max Price Time [FI]"
     assert time_sensor.native_value == tomorrow_start + timedelta(hours=5)
     assert time_sensor.device_class == SensorDeviceClass.TIMESTAMP
     assert time_sensor.available is True

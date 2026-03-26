@@ -61,7 +61,7 @@ class TestFortumPriceSensor:
 
     def test_sensor_properties(self, sensor):
         """Test sensor properties."""
-        assert sensor.name == "Price per kWh FI"
+        assert sensor.name == "Price per kWh [FI]"
         assert sensor.state_class == SensorStateClass.MEASUREMENT
         assert sensor.native_unit_of_measurement == "EUR/kWh"
 

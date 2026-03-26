@@ -109,7 +109,7 @@ This keeps:
 ### Sensors (`sensors/*`)
 - `Statistics Last Sync` is diagnostic and only created when `Debug entities` is enabled.
 - `Tomorrow Max Price` and `Tomorrow Max Price Time` are based on tomorrow points in spot-price coordinator data and remain unavailable until tomorrow prices are published.
-- Spot-price sensors are created per area (`<AREA>` suffix in entity names/unique IDs) and legacy non-area spot entities are removed by migration.
+- Spot-price sensors are created per area (`[AREA]` notation in entity names, area code suffix in unique IDs) and legacy non-area spot entities are removed by migration.
 
 ### Models (`models.py`)
 - Typed models for API payloads.

@@ -128,12 +128,17 @@ class TestMeteringPoint:
 
     def test_metering_point_from_api_response(self):
         """Test creating metering point from API response."""
-        api_data = {"meteringPointNo": "MP123456", "address": "123 Main St"}
+        api_data = {
+            "meteringPointNo": "MP123456",
+            "address": "123 Main St",
+            "priceArea": "fi",
+        }
 
         point = MeteringPoint.from_api_response(api_data)
 
         assert point.metering_point_no == "MP123456"
         assert point.address == "123 Main St"
+        assert point.price_area == "FI"
 
     def test_metering_point_from_nested_api_response(self):
         """Test creating metering point from nested Fortum delivery site payload."""
@@ -142,6 +147,7 @@ class TestMeteringPoint:
             "consumption": {
                 "meteringPointNo": "6094111",
                 "meteringPointId": "643003825101336249",
+                "priceArea": "se3",
                 "measurementDates": [
                     {
                         "firstDate": "2025-01-06T00:00:00.000+02:00",
@@ -168,6 +174,7 @@ class TestMeteringPoint:
         assert point.metering_point_no == "6094111"
         assert point.metering_point_id == "643003825101336249"
         assert point.address == "Somethingtie 123, 00100 Helsinki"
+        assert point.price_area == "SE3"
         assert point.earliest_hourly_available_at_utc == datetime.fromisoformat(
             "2025-01-06T00:00:00+02:00"
         )

@@ -41,7 +41,7 @@ class _FortumTomorrowPriceEntity(FortumEntity, SensorEntity):
             coordinator=coordinator,
             device=device,
             entity_key=f"{entity_key}_{self._area_code.lower()}",
-            name=f"{name} {self._area_code}",
+            name=f"{name} [{self._area_code}]",
         )
 
     def _area_price_points(self) -> list[SpotPricePoint]:

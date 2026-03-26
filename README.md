@@ -89,11 +89,12 @@ For manual Energy setup, add Fortum hourly statistics under Grid consumption:
 
 The integration creates these regular entities:
 
-- **Price per kWh <AREA>** (`sensor`): Latest spot price for each discovered price area, refreshed by the price coordinator every 5 minutes.
-- **Tomorrow Max Price <AREA>** (`sensor`): Maximum published spot price for tomorrow per area; unavailable until tomorrow prices are published.
-- **Tomorrow Max Price Time <AREA>** (`sensor`, timestamp): Timestamp for tomorrow's maximum spot price per area; unavailable until tomorrow prices are published.
+- **Price per kWh [AREA]** (`sensor`): Latest spot price for each discovered price area, refreshed by the price coordinator every 5 minutes.
+- **Tomorrow Max Price [AREA]** (`sensor`): Maximum published spot price for tomorrow per area; unavailable until tomorrow prices are published.
+- **Tomorrow Max Price Time [AREA]** (`sensor`, timestamp): Timestamp for tomorrow's maximum spot price per area; unavailable until tomorrow prices are published.
 - Together with the dashboard tomorrow-price graph, these sensors expose tomorrow peak pricing directly for automations and planning.
 - Spot-price entities and forecast statistics are only created when explicit `priceArea` values are available in Fortum session data.
+- Area-coded names use square-bracket notation across the integration UI (for example `[FI]`, `[SE3]`).
 
 Additionally, it imports hourly Recorder statistics for each available metering point:
 

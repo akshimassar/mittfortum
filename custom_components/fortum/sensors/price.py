@@ -33,7 +33,7 @@ class FortumPriceSensor(FortumEntity, SensorEntity):
             coordinator=coordinator,
             device=device,
             entity_key=f"{PRICE_SENSOR_KEY}_{self._area_code.lower()}",
-            name=f"Price per kWh {self._area_code}",
+            name=f"Price per kWh [{self._area_code}]",
         )
         self._fallback_unit = f"{get_currency_for_region(region)}/kWh"
 

@@ -216,7 +216,7 @@ const formatForecastSeriesLabel = (statId, index) => {
   if (!match) {
     return index === 0 ? "Price" : `Price ${index + 1}`;
   }
-  return `Price ${String(match[1] || "").toUpperCase()}`;
+  return `Price [${String(match[1] || "").toUpperCase()}]`;
 };
 
 const deriveEnergyRuntimeConfig = ({
