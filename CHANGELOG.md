@@ -8,6 +8,7 @@ All notable changes to this project are documented in this file.
 - Standardized area suffix naming in spot-price UI labels to use `[AREA]` consistently across docs and dashboard references.
 - Refined README visuals and clarifications around price-area behavior.
 - Updated CI workflow so HACS validation and Hassfest run on release tags (`v*`) and can still be started manually.
+- Declared Home Assistant component ordering via manifest `after_dependencies` for `energy`, `http`, `lovelace`, and `recorder` to satisfy dependency validation.
 
 ## [4.1.1]
 

@@ -4,6 +4,7 @@
   "codeowners": ["@akshimassar", "@selleronom"],
   "config_flow": true,
   "dependencies": [],
+  "after_dependencies": ["energy", "http", "lovelace", "recorder"],
   "documentation": "https://github.com/akshimassar/ha-fortum",
   "homekit": {},
   "iot_class": "cloud_polling",
