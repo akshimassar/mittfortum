@@ -93,7 +93,7 @@ The integration creates these regular entities:
 - **Tomorrow Max Price [AREA]** (`sensor`): Maximum published spot price for tomorrow per area; unavailable until tomorrow prices are published.
 - **Tomorrow Max Price Time [AREA]** (`sensor`, timestamp): Timestamp for tomorrow's maximum spot price per area; unavailable until tomorrow prices are published.
 - Together with the dashboard tomorrow-price graph, these sensors expose tomorrow peak pricing directly for automations and planning.
-- Spot-price entities and forecast statistics are only created when explicit `priceArea` values are available in Fortum session data.
+- Fortum accounts can include one or more metering points. Each metering point belongs to a price area (for example `[FI]` or `[SE3]`), and spot-price entities are shown with that `[AREA]` suffix.
 - Area-coded names use square-bracket notation across the integration UI (for example `[FI]`, `[SE3]`).
 
 Additionally, it imports hourly Recorder statistics for each available metering point:
