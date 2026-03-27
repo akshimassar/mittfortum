@@ -45,6 +45,13 @@ Guidance for AI/code agents working in this repository.
 - If a temporary workaround is unavoidable, mark it clearly and follow up with a root-cause fix.
 - If internal behavior changes materially, rename methods/functions to match new semantics (avoid stale names that describe old behavior).
 
+## Architecture Invariants
+- Preserve clear layer ownership and a single source of truth for each domain concern.
+- Avoid cross-layer links and side-channel access; consumers must use the owning abstraction.
+- When introducing a new manager/service (for example `SessionManager`), migrate all related reads/writes to it in the same change.
+- Do not leave mixed access paths (new abstraction + legacy direct access) in runtime code.
+- Treat bypassing the owner boundary as an architecture violation unless explicitly documented as temporary.
+
 ## Validation
 - Required baseline checks:
   - `uv run ruff check custom_components/fortum tests`
