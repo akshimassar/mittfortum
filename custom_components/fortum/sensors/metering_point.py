@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -16,6 +17,8 @@ if TYPE_CHECKING:
 
     from ..device import FortumDevice
     from ..models import MeteringPoint
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class FortumMeteringPointSensor(SensorEntity):
@@ -65,13 +68,14 @@ class FortumMeteringPointSensor(SensorEntity):
             attributes["price_area"] = self._metering_point.price_area
         return attributes
 
-    def refresh_metering_point(self, metering_point: MeteringPoint) -> None:
+    def refresh_metering_point(self, metering_point: MeteringPoint) -> bool:
         """Update metering point payload and write state if changed."""
         if self._metering_point == metering_point:
-            return
+            return False
         self._metering_point = metering_point
         if getattr(self, "hass", None) is not None:
             self.async_write_ha_state()
+        return True
 
 
 class FortumNorgesprisConsumptionLimitSensor(SensorEntity):
@@ -102,13 +106,14 @@ class FortumNorgesprisConsumptionLimitSensor(SensorEntity):
         """Return Norgespris consumption limit in kWh."""
         return self._metering_point.norgespris_consumption_limit
 
-    def refresh_metering_point(self, metering_point: MeteringPoint) -> None:
+    def refresh_metering_point(self, metering_point: MeteringPoint) -> bool:
         """Update metering point payload and write state if changed."""
         if self._metering_point == metering_point:
-            return
+            return False
         self._metering_point = metering_point
         if getattr(self, "hass", None) is not None:
             self.async_write_ha_state()
+        return True
 
 
 class MeteringPointSensors:
@@ -144,9 +149,18 @@ class MeteringPointSensors:
 
     def refresh(self, metering_point: MeteringPoint) -> None:
         """Refresh owned entities from latest metering point payload."""
-        self._metering_point_sensor.refresh_metering_point(metering_point)
+        changed = self._metering_point_sensor.refresh_metering_point(metering_point)
         if self._norgespris_sensor is not None:
-            self._norgespris_sensor.refresh_metering_point(metering_point)
+            changed = (
+                self._norgespris_sensor.refresh_metering_point(metering_point)
+                or changed
+            )
+
+        if changed:
+            _LOGGER.debug(
+                "updated metering point sensors metering_point_no=%s",
+                self._metering_point_no,
+            )
 
 
 class MeteringPointSensorRegistry:
@@ -176,6 +190,10 @@ class MeteringPointSensorRegistry:
                     self._device,
                     self._region,
                     metering_point,
+                )
+                _LOGGER.debug(
+                    "added metering point sensors metering_point_no=%s",
+                    metering_point.metering_point_no,
                 )
                 continue
 

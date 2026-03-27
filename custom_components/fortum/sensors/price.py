@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -21,6 +22,8 @@ from .tomorrow_price import (
     FortumTomorrowMaxPriceSensor,
     FortumTomorrowMaxPriceTimeSensor,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class FortumPriceSensor(FortumEntity, SensorEntity):
@@ -185,3 +188,4 @@ class PriceAreaSensorRegistry:
                 self._region,
                 area,
             )
+            _LOGGER.debug("added price-area sensors area_code=%s", area)

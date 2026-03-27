@@ -80,10 +80,12 @@ class SessionManager:
     def start(self) -> None:
         """Start periodic session refresh scheduling."""
         self._enabled = True
+        _LOGGER.debug("session manager started entry_id=%s", self._entry_id)
         self._schedule_next_refresh()
 
     async def stop(self) -> None:
         """Stop periodic session refresh scheduling and active task."""
+        _LOGGER.debug("session manager stopping entry_id=%s", self._entry_id)
         self._state = STATE_STOPPED
         self._enabled = False
         self._cancel_next_refresh()
@@ -94,6 +96,7 @@ class SessionManager:
             except asyncio.CancelledError:
                 pass
         self._refresh_task = None
+        _LOGGER.debug("session manager stopped entry_id=%s", self._entry_id)
 
     def get_snapshot(self) -> SessionSnapshot | None:
         """Return latest parsed session snapshot."""
@@ -164,6 +167,12 @@ class SessionManager:
                 raise InvalidResponseError(
                     "Received additional session payload before sensor platform setup"
                 )
+            _LOGGER.debug(
+                "buffered initial session payload before sensor setup "
+                "entry_id=%s source=%s",
+                self._entry_id,
+                source,
+            )
             self._setup_waiting_payload = payload
             return
 
@@ -176,11 +185,18 @@ class SessionManager:
             runtime.metering_points.refresh_all(snapshot.metering_points)
             runtime.price_areas.refresh_all(snapshot.price_areas)
             _LOGGER.debug("session update applied to live entities source=%s", source)
+        else:
+            _LOGGER.debug(
+                "session update stored without sensor runtime entry_id=%s source=%s",
+                self._entry_id,
+                source,
+            )
 
         self._schedule_next_refresh()
 
     async def _async_refresh_from_api(self) -> None:
         """Refresh session from API and update parsed snapshot."""
+        _LOGGER.debug("scheduled session refresh started entry_id=%s", self._entry_id)
         try:
             payload = await self._api_client.get_session_payload()
         except (APIError, InvalidResponseError) as exc:
@@ -193,6 +209,11 @@ class SessionManager:
     def _schedule_next_refresh(self) -> None:
         """Schedule next session refresh at configured interval."""
         if not self._enabled:
+            _LOGGER.debug(
+                "skipping session refresh scheduling because manager disabled "
+                "entry_id=%s",
+                self._entry_id,
+            )
             return
 
         self._cancel_next_refresh()
@@ -201,10 +222,18 @@ class SessionManager:
             self._refresh_interval.total_seconds(),
             self._run_refresh_if_enabled,
         )
+        _LOGGER.debug(
+            "scheduled next session refresh entry_id=%s in_seconds=%.0f",
+            self._entry_id,
+            self._refresh_interval.total_seconds(),
+        )
 
     def _cancel_next_refresh(self) -> None:
         """Cancel pending session refresh callback."""
         if self._refresh_handle is not None:
+            _LOGGER.debug(
+                "cancelling pending session refresh entry_id=%s", self._entry_id
+            )
             self._refresh_handle.cancel()
             self._refresh_handle = None
 
@@ -212,8 +241,16 @@ class SessionManager:
         """Run scheduled refresh when manager is enabled and idle."""
         self._refresh_handle = None
         if not self._enabled:
+            _LOGGER.debug(
+                "ignoring scheduled refresh because manager disabled entry_id=%s",
+                self._entry_id,
+            )
             return
         if self._refresh_task and not self._refresh_task.done():
+            _LOGGER.warning(
+                "ignoring scheduled refresh because task already running entry_id=%s",
+                self._entry_id,
+            )
             return
 
         async def _refresh() -> None:
