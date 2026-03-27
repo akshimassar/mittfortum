@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from homeassistant.components.sensor import SensorEntity
@@ -11,6 +12,7 @@ from ..const import NORGESPRIS_CONSUMPTION_LIMIT_SENSOR_KEY
 
 if TYPE_CHECKING:
     from homeassistant.helpers.device_registry import DeviceInfo
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from ..device import FortumDevice
     from ..models import MeteringPoint
@@ -63,6 +65,14 @@ class FortumMeteringPointSensor(SensorEntity):
             attributes["price_area"] = self._metering_point.price_area
         return attributes
 
+    def refresh_metering_point(self, metering_point: MeteringPoint) -> None:
+        """Update metering point payload and write state if changed."""
+        if self._metering_point == metering_point:
+            return
+        self._metering_point = metering_point
+        if getattr(self, "hass", None) is not None:
+            self.async_write_ha_state()
+
 
 class FortumNorgesprisConsumptionLimitSensor(SensorEntity):
     """Sensor exposing Norgespris consumption limit for one metering point."""
@@ -91,3 +101,87 @@ class FortumNorgesprisConsumptionLimitSensor(SensorEntity):
     def native_value(self) -> float | None:
         """Return Norgespris consumption limit in kWh."""
         return self._metering_point.norgespris_consumption_limit
+
+    def refresh_metering_point(self, metering_point: MeteringPoint) -> None:
+        """Update metering point payload and write state if changed."""
+        if self._metering_point == metering_point:
+            return
+        self._metering_point = metering_point
+        if getattr(self, "hass", None) is not None:
+            self.async_write_ha_state()
+
+
+class MeteringPointSensors:
+    """Own Fortum entities for one metering point and update logic."""
+
+    def __init__(
+        self,
+        async_add_entities: AddEntitiesCallback,
+        device: FortumDevice,
+        region: str,
+        metering_point: MeteringPoint,
+    ) -> None:
+        """Initialize and add entities for this metering point."""
+        self._metering_point_no = metering_point.metering_point_no
+        self._metering_point_sensor = FortumMeteringPointSensor(device, metering_point)
+
+        norgespris_sensor: FortumNorgesprisConsumptionLimitSensor | None = None
+        entities: list[SensorEntity] = [self._metering_point_sensor]
+        if region == "no":
+            norgespris_sensor = FortumNorgesprisConsumptionLimitSensor(
+                device,
+                metering_point,
+            )
+            entities.append(norgespris_sensor)
+
+        self._norgespris_sensor = norgespris_sensor
+        async_add_entities(entities, update_before_add=False)
+
+    @property
+    def metering_point_no(self) -> str:
+        """Return metering point number this group owns."""
+        return self._metering_point_no
+
+    def refresh(self, metering_point: MeteringPoint) -> None:
+        """Refresh owned entities from latest metering point payload."""
+        self._metering_point_sensor.refresh_metering_point(metering_point)
+        if self._norgespris_sensor is not None:
+            self._norgespris_sensor.refresh_metering_point(metering_point)
+
+
+class MeteringPointSensorRegistry:
+    """Registry that owns all metering-point sensor groups."""
+
+    def __init__(
+        self,
+        async_add_entities: AddEntitiesCallback,
+        device: FortumDevice,
+        region: str,
+        metering_points: tuple[MeteringPoint, ...],
+    ) -> None:
+        """Initialize metering-point sensor groups and create entities."""
+        self._async_add_entities = async_add_entities
+        self._device = device
+        self._region = region
+        self._groups: dict[str, MeteringPointSensors] = {}
+        self.refresh_all(metering_points)
+
+    def refresh_all(self, metering_points: tuple[MeteringPoint, ...]) -> None:
+        """Refresh all existing groups and add newly discovered metering points."""
+        for metering_point in metering_points:
+            group = self._groups.get(metering_point.metering_point_no)
+            if group is None:
+                self._groups[metering_point.metering_point_no] = MeteringPointSensors(
+                    self._async_add_entities,
+                    self._device,
+                    self._region,
+                    metering_point,
+                )
+                continue
+
+            group.refresh(metering_point)
+
+    def for_each(self, callback: Callable[[MeteringPointSensors], None]) -> None:
+        """Run callback for every registered metering-point group."""
+        for group in self._groups.values():
+            callback(group)

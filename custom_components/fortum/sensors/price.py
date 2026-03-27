@@ -10,11 +10,17 @@ from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from ..const import PRICE_SENSOR_KEY, get_currency_for_region
 
 if TYPE_CHECKING:
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
     from ..coordinators import SpotPriceSyncCoordinator
     from ..device import FortumDevice
 
 from ..entity import FortumEntity
 from ..models import SpotPricePoint
+from .tomorrow_price import (
+    FortumTomorrowMaxPriceSensor,
+    FortumTomorrowMaxPriceTimeSensor,
+)
 
 
 class FortumPriceSensor(FortumEntity, SensorEntity):
@@ -115,3 +121,67 @@ class FortumPriceSensor(FortumEntity, SensorEntity):
             "latest_date": latest_date.isoformat(),
             "has_future_price": latest_date > now,
         }
+
+
+class PriceAreaSensors:
+    """Own Fortum spot-price entities for one price area."""
+
+    def __init__(
+        self,
+        async_add_entities: AddEntitiesCallback,
+        coordinator: SpotPriceSyncCoordinator,
+        device: FortumDevice,
+        region: str,
+        area_code: str,
+    ) -> None:
+        """Initialize and add entities for one price area."""
+        self._area_code = area_code.upper()
+        async_add_entities(
+            [
+                FortumPriceSensor(coordinator, device, region, self._area_code),
+                FortumTomorrowMaxPriceSensor(
+                    coordinator, device, region, self._area_code
+                ),
+                FortumTomorrowMaxPriceTimeSensor(coordinator, device, self._area_code),
+            ],
+            update_before_add=False,
+        )
+
+    @property
+    def area_code(self) -> str:
+        """Return area code this group owns."""
+        return self._area_code
+
+
+class PriceAreaSensorRegistry:
+    """Registry that owns all price-area sensor groups."""
+
+    def __init__(
+        self,
+        async_add_entities: AddEntitiesCallback,
+        coordinator: SpotPriceSyncCoordinator,
+        device: FortumDevice,
+        region: str,
+        price_areas: tuple[str, ...],
+    ) -> None:
+        """Initialize price-area sensor groups and create entities."""
+        self._async_add_entities = async_add_entities
+        self._coordinator = coordinator
+        self._device = device
+        self._region = region
+        self._groups: dict[str, PriceAreaSensors] = {}
+        self.refresh_all(price_areas)
+
+    def refresh_all(self, price_areas: tuple[str, ...]) -> None:
+        """Add entities for newly discovered price areas."""
+        for area_code in price_areas:
+            area = area_code.upper()
+            if area in self._groups:
+                continue
+            self._groups[area] = PriceAreaSensors(
+                self._async_add_entities,
+                self._coordinator,
+                self._device,
+                self._region,
+                area,
+            )

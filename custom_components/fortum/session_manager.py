@@ -13,11 +13,17 @@ from homeassistant.util import dt as dt_util
 from .const import SESSION_REFRESH_INTERVAL
 from .exceptions import APIError, InvalidResponseError
 from .models import CustomerDetails, MeteringPoint
+from .sensors.metering_point import MeteringPointSensorRegistry
+from .sensors.price import PriceAreaSensorRegistry
+from .sensors.stats_last_sync import FortumStatisticsLastSyncSensor
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from .api import FortumAPIClient
+    from .coordinators import HourlyConsumptionSyncCoordinator, SpotPriceSyncCoordinator
+    from .device import FortumDevice
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +37,14 @@ class SessionSnapshot:
     metering_points: tuple[MeteringPoint, ...]
     price_areas: tuple[str, ...]
     updated_at_utc: datetime
+
+
+@dataclass
+class SensorPlatformRuntime:
+    """Runtime state for sensor platform registration."""
+
+    metering_points: MeteringPointSensorRegistry
+    price_areas: PriceAreaSensorRegistry
 
 
 class SessionManager:
@@ -55,6 +69,7 @@ class SessionManager:
         self._enabled = False
         self._refresh_handle: asyncio.TimerHandle | None = None
         self._refresh_task: asyncio.Task[None] | None = None
+        self._sensor_platform: SensorPlatformRuntime | None = None
 
     def start(self) -> None:
         """Start periodic session refresh scheduling."""
@@ -77,27 +92,57 @@ class SessionManager:
         """Return latest parsed session snapshot."""
         return self._snapshot
 
+    async def async_setup_sensor_platform(
+        self,
+        async_add_entities: AddEntitiesCallback,
+        *,
+        coordinator: HourlyConsumptionSyncCoordinator,
+        price_coordinator: SpotPriceSyncCoordinator,
+        device: FortumDevice,
+        region: str,
+        debug_entities: bool,
+    ) -> None:
+        """Register sensor platform runtime and add initial entities."""
+        snapshot = self._snapshot
+        metering_points = snapshot.metering_points if snapshot else ()
+        price_areas = snapshot.price_areas if snapshot else ()
+
+        runtime = SensorPlatformRuntime(
+            metering_points=MeteringPointSensorRegistry(
+                async_add_entities,
+                device,
+                region,
+                metering_points,
+            ),
+            price_areas=PriceAreaSensorRegistry(
+                async_add_entities,
+                price_coordinator,
+                device,
+                region,
+                price_areas,
+            ),
+        )
+        self._sensor_platform = runtime
+
+        if debug_entities:
+            async_add_entities(
+                [FortumStatisticsLastSyncSensor(coordinator, device)],
+                update_before_add=False,
+            )
+
     async def async_update_from_payload(
         self, payload: dict[str, Any], source: str
     ) -> None:
         """Parse and store session payload, then reschedule refresh."""
         async with self._lock:
             snapshot = self._parse_session_snapshot(payload)
-            previous_snapshot = self._snapshot
             self._snapshot = snapshot
 
-            if previous_snapshot is not None and self._has_semantic_change(
-                previous_snapshot,
-                snapshot,
-            ):
-                _LOGGER.info(
-                    "session update (%s) changed session state; reloading entry %s",
-                    source,
-                    self._entry_id,
-                )
-                self._hass.async_create_task(
-                    self._hass.config_entries.async_reload(self._entry_id)
-                )
+        runtime = self._sensor_platform
+        if runtime is not None:
+            runtime.metering_points.refresh_all(snapshot.metering_points)
+            runtime.price_areas.refresh_all(snapshot.price_areas)
+            _LOGGER.debug("session update applied to live entities source=%s", source)
 
         self._schedule_next_refresh()
 
@@ -201,28 +246,3 @@ class SessionManager:
         if not isinstance(raw, str) or not raw.strip():
             return None
         return raw.strip().upper()
-
-    @staticmethod
-    def _has_semantic_change(
-        previous: SessionSnapshot,
-        current: SessionSnapshot,
-    ) -> bool:
-        """Return True when meaningful session content changed."""
-        if previous.customer_id != current.customer_id:
-            return True
-
-        if previous.customer_details != current.customer_details:
-            return True
-
-        if set(previous.price_areas) != set(current.price_areas):
-            return True
-
-        previous_points = sorted(
-            previous.metering_points,
-            key=lambda point: point.metering_point_no,
-        )
-        current_points = sorted(
-            current.metering_points,
-            key=lambda point: point.metering_point_no,
-        )
-        return previous_points != current_points
