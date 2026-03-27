@@ -12,10 +12,10 @@ from homeassistant.helpers import frame
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.fortum.api.client import FortumAPIClient
-from custom_components.fortum.coordinators import (
+from custom_components.fortum.coordinators.hourly_consumption import (
     HourlyConsumptionSyncCoordinator,
-    SpotPriceSyncCoordinator,
 )
+from custom_components.fortum.coordinators.spot_price import SpotPriceSyncCoordinator
 from custom_components.fortum.exceptions import APIError, AuthenticationError
 from custom_components.fortum.models import SpotPricePoint
 

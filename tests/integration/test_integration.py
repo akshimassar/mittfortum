@@ -169,7 +169,7 @@ class TestFortumIntegration:
 
         from homeassistant.helpers import frame
 
-        from custom_components.fortum.coordinators import (
+        from custom_components.fortum.coordinators.hourly_consumption import (
             HourlyConsumptionSyncCoordinator,
         )
 

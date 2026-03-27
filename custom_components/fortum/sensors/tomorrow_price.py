@@ -20,7 +20,7 @@ from ..entity import FortumEntity
 from ..models import SpotPricePoint
 
 if TYPE_CHECKING:
-    from ..coordinators import SpotPriceSyncCoordinator
+    from ..coordinators.spot_price import SpotPriceSyncCoordinator
     from ..device import FortumDevice
 
 

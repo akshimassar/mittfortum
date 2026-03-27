@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from ..coordinators import HourlyConsumptionSyncCoordinator
+    from ..coordinators.hourly_consumption import HourlyConsumptionSyncCoordinator
     from ..device import FortumDevice
 
 

@@ -59,10 +59,8 @@ from .const import (
     PLATFORMS,
     PRICE_UPDATE_INTERVAL,
 )
-from .coordinators import (
-    HourlyConsumptionSyncCoordinator,
-    SpotPriceSyncCoordinator,
-)
+from .coordinators.hourly_consumption import HourlyConsumptionSyncCoordinator
+from .coordinators.spot_price import SpotPriceSyncCoordinator
 from .device import FortumDevice
 from .exceptions import AuthenticationError, FortumError, InvalidResponseError
 from .log_capture import ensure_diagnostics_log_capture, remove_diagnostics_log_capture

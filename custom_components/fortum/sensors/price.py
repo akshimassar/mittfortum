@@ -13,7 +13,7 @@ from ..const import PRICE_SENSOR_KEY, get_currency_for_region
 if TYPE_CHECKING:
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from ..coordinators import SpotPriceSyncCoordinator
+    from ..coordinators.spot_price import SpotPriceSyncCoordinator
     from ..device import FortumDevice
 
 from ..entity import FortumEntity

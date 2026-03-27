@@ -22,7 +22,8 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from .api import FortumAPIClient
-    from .coordinators import HourlyConsumptionSyncCoordinator, SpotPriceSyncCoordinator
+    from .coordinators.hourly_consumption import HourlyConsumptionSyncCoordinator
+    from .coordinators.spot_price import SpotPriceSyncCoordinator
     from .device import FortumDevice
 
 _LOGGER = logging.getLogger(__name__)

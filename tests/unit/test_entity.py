@@ -4,7 +4,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from custom_components.fortum.coordinators import HourlyConsumptionSyncCoordinator
+from custom_components.fortum.coordinators.hourly_consumption import (
+    HourlyConsumptionSyncCoordinator,
+)
 from custom_components.fortum.device import FortumDevice
 from custom_components.fortum.entity import FortumEntity
 
