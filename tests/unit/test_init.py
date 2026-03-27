@@ -357,7 +357,15 @@ class TestInit:
             metering_point_id="id-1",
             address="Test",
         )
-        mock_hass.data = {DOMAIN: {"entry": {"metering_points": [point]}}}
+        mock_hass.data = {
+            DOMAIN: {
+                "entry": {
+                    "session_manager": SimpleNamespace(
+                        get_snapshot=lambda: SimpleNamespace(metering_points=(point,))
+                    )
+                }
+            }
+        }
 
         manager = Mock()
         manager.data = {"energy_sources": []}
@@ -394,7 +402,15 @@ class TestInit:
             metering_point_id="id-1",
             address="Test",
         )
-        mock_hass.data = {DOMAIN: {"entry": {"metering_points": [point]}}}
+        mock_hass.data = {
+            DOMAIN: {
+                "entry": {
+                    "session_manager": SimpleNamespace(
+                        get_snapshot=lambda: SimpleNamespace(metering_points=(point,))
+                    )
+                }
+            }
+        }
 
         manager = Mock()
         manager.data = {"energy_sources": []}
@@ -427,7 +443,15 @@ class TestInit:
         mock_hass,
     ):
         """Bootstrap should not modify existing energy preferences."""
-        mock_hass.data = {DOMAIN: {"entry": {"metering_points": []}}}
+        mock_hass.data = {
+            DOMAIN: {
+                "entry": {
+                    "session_manager": SimpleNamespace(
+                        get_snapshot=lambda: SimpleNamespace(metering_points=())
+                    )
+                }
+            }
+        }
         manager = Mock()
         manager.data = {"energy_sources": [{"type": "grid"}]}
         manager.async_update = AsyncMock()

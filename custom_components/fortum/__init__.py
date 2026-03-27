@@ -71,7 +71,7 @@ from .migrations import (
     async_migrate_unique_ids_to_entry_id,
     async_remove_legacy_spot_price_entities,
 )
-from .models import MeteringPoint
+from .session_manager import SessionManager
 
 _LOGGER = logging.getLogger(__name__)
 ensure_function_name_log_prefix()
@@ -118,22 +118,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ),
         )
 
-        # Perform initial authentication
-        await auth_client.authenticate()
-        _LOGGER.debug("authentication completed entry_id=%s", entry.entry_id)
-
         # Create API client
         api_client = FortumAPIClient(hass, auth_client)
 
-        # Extract metering points from authenticated session payload.
-        metering_points = _extract_metering_points_from_session(
-            auth_client.session_data
+        session_manager = SessionManager(hass, entry.entry_id, api_client)
+        provider_result: Any = api_client.set_session_snapshot_provider(
+            session_manager.get_snapshot
         )
+        if isawaitable(provider_result):
+            await provider_result
+
+        callback_result: Any = auth_client.set_session_update_callback(
+            session_manager.async_update_from_payload
+        )
+        if isawaitable(callback_result):
+            await callback_result
+
+        # Perform initial authentication and let callback hydrate SessionManager.
+        await auth_client.authenticate()
+        _LOGGER.debug("authentication completed entry_id=%s", entry.entry_id)
+
+        session_manager.start()
+
+        # Extract metering points from parsed session snapshot.
+        snapshot = session_manager.get_snapshot()
 
         await async_migrate_unique_ids_to_entry_id(
             hass,
             entry,
-            session_data=auth_client.session_data,
+            customer_id=snapshot.customer_id if snapshot else None,
             username=username,
         )
         await async_remove_legacy_spot_price_entities(hass, entry)
@@ -149,7 +162,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "price_coordinator": price_coordinator,
             "device": device,
             "api_client": api_client,
-            "metering_points": metering_points,
+            "session_manager": session_manager,
         }
 
         entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -204,6 +217,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entry_data.get("api_client") if isinstance(entry_data, dict) else None
         )
         auth_client = getattr(api_client, "_auth_client", None)  # noqa: SLF001
+        session_manager = (
+            entry_data.get("session_manager") if isinstance(entry_data, dict) else None
+        )
+        stop_session_manager = getattr(session_manager, "stop", None)
+        if callable(stop_session_manager):
+            stop_result = stop_session_manager()
+            if isawaitable(stop_result):
+                await stop_result
+
         stop_monitor = getattr(auth_client, "stop_token_renewal_scheduler", None)
         if callable(stop_monitor):
             stop_result = stop_monitor()
@@ -278,33 +300,6 @@ def _apply_debug_logging(entry: ConfigEntry) -> None:
     debug_enabled = entry.options.get(CONF_DEBUG_LOGGING, DEFAULT_DEBUG_LOGGING)
     logger = logging.getLogger(f"custom_components.{DOMAIN}")
     logger.setLevel(logging.DEBUG if debug_enabled else logging.INFO)
-
-
-def _extract_metering_points_from_session(
-    session_data: dict | None,
-) -> list[MeteringPoint]:
-    """Extract metering points from already-authenticated session payload."""
-    if not session_data:
-        return []
-
-    user_data = session_data.get("user")
-    if not isinstance(user_data, dict):
-        return []
-
-    delivery_sites = user_data.get("deliverySites")
-    if not isinstance(delivery_sites, list):
-        return []
-
-    points: list[MeteringPoint] = []
-    for site in delivery_sites:
-        if not isinstance(site, dict):
-            continue
-        try:
-            points.append(MeteringPoint.from_api_response(site))
-        except (TypeError, ValueError):
-            continue
-
-    return points
 
 
 async def _async_post_setup_refreshes(
@@ -546,16 +541,16 @@ async def _async_bootstrap_energy_preferences(
     if not isinstance(entry_data, dict):
         return
 
-    metering_points = entry_data.get("metering_points", [])
+    session_manager = entry_data.get("session_manager")
+    snapshot = session_manager.get_snapshot() if session_manager is not None else None
+    metering_points = list(snapshot.metering_points) if snapshot else []
     if not metering_points:
         _LOGGER.debug("no metering points available; skipping energy bootstrap")
         return
 
     fortum_stat_pairs: list[tuple[str, str]] = []
     for point in metering_points:
-        metering_point_no = (
-            point.metering_point_no if isinstance(point, MeteringPoint) else None
-        )
+        metering_point_no = point.metering_point_no
         if not metering_point_no:
             continue
 

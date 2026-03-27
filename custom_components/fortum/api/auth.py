@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
@@ -86,6 +87,9 @@ class OAuth2AuthClient:
         self._token_refresh_task: asyncio.Task | None = None
         self._token_refresh_handle: asyncio.TimerHandle | None = None
         self._renewal_scheduler_enabled: bool = False
+        self._session_update_callback: (
+            Callable[[dict[str, Any], str], Awaitable[None]] | None
+        ) = None
 
     @property
     def access_token(self) -> str | None:
@@ -102,10 +106,12 @@ class OAuth2AuthClient:
         """Get current ID token."""
         return self._tokens.id_token if self._tokens else None
 
-    @property
-    def session_data(self) -> dict[str, Any] | None:
-        """Get current session data."""
-        return self._session_data
+    def set_session_update_callback(
+        self,
+        callback: Callable[[dict[str, Any], str], Awaitable[None]] | None,
+    ) -> None:
+        """Register callback called whenever full auth refreshes session payload."""
+        self._session_update_callback = callback
 
     @property
     def session_cookies(self) -> dict[str, str]:
@@ -247,6 +253,9 @@ class OAuth2AuthClient:
 
                 # Store session data for later use
                 self._session_data = session_data
+
+                if self._session_update_callback is not None:
+                    await self._session_update_callback(session_data, "reauth")
 
                 # Start background token monitoring for proactive renewal
                 self.start_token_renewal_scheduler()

@@ -1,0 +1,228 @@
+"""Session state manager for Fortum integration."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any
+
+from homeassistant.util import dt as dt_util
+
+from .const import SESSION_REFRESH_INTERVAL
+from .exceptions import APIError, InvalidResponseError
+from .models import CustomerDetails, MeteringPoint
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
+    from .api import FortumAPIClient
+
+_LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SessionSnapshot:
+    """Parsed session snapshot used by integration runtime."""
+
+    customer_id: str | None
+    customer_details: CustomerDetails | None
+    metering_points: tuple[MeteringPoint, ...]
+    price_areas: tuple[str, ...]
+    updated_at_utc: datetime
+
+
+class SessionManager:
+    """Manage parsed Fortum session state and refresh scheduling."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry_id: str,
+        api_client: FortumAPIClient,
+        *,
+        refresh_interval: timedelta = SESSION_REFRESH_INTERVAL,
+    ) -> None:
+        """Initialize session manager."""
+        self._hass = hass
+        self._entry_id = entry_id
+        self._api_client = api_client
+        self._refresh_interval = refresh_interval
+
+        self._snapshot: SessionSnapshot | None = None
+        self._lock = asyncio.Lock()
+        self._enabled = False
+        self._refresh_handle: asyncio.TimerHandle | None = None
+        self._refresh_task: asyncio.Task[None] | None = None
+
+    def start(self) -> None:
+        """Start periodic session refresh scheduling."""
+        self._enabled = True
+        self._schedule_next_refresh()
+
+    async def stop(self) -> None:
+        """Stop periodic session refresh scheduling and active task."""
+        self._enabled = False
+        self._cancel_next_refresh()
+        if self._refresh_task and not self._refresh_task.done():
+            self._refresh_task.cancel()
+            try:
+                await self._refresh_task
+            except asyncio.CancelledError:
+                pass
+        self._refresh_task = None
+
+    def get_snapshot(self) -> SessionSnapshot | None:
+        """Return latest parsed session snapshot."""
+        return self._snapshot
+
+    async def async_update_from_payload(
+        self, payload: dict[str, Any], source: str
+    ) -> None:
+        """Parse and store session payload, then reschedule refresh."""
+        async with self._lock:
+            snapshot = self._parse_session_snapshot(payload)
+            previous_snapshot = self._snapshot
+            self._snapshot = snapshot
+
+            if previous_snapshot is not None and self._has_semantic_change(
+                previous_snapshot,
+                snapshot,
+            ):
+                _LOGGER.info(
+                    "session update (%s) changed session state; reloading entry %s",
+                    source,
+                    self._entry_id,
+                )
+                self._hass.async_create_task(
+                    self._hass.config_entries.async_reload(self._entry_id)
+                )
+
+        self._schedule_next_refresh()
+
+    async def _async_refresh_from_api(self) -> None:
+        """Refresh session from API and update parsed snapshot."""
+        try:
+            payload = await self._api_client.get_session_payload()
+        except (APIError, InvalidResponseError) as exc:
+            _LOGGER.warning("session refresh failed for %s: %s", self._entry_id, exc)
+            self._schedule_next_refresh()
+            return
+
+        await self.async_update_from_payload(payload, source="scheduled")
+
+    def _schedule_next_refresh(self) -> None:
+        """Schedule next session refresh at configured interval."""
+        if not self._enabled:
+            return
+
+        self._cancel_next_refresh()
+        loop = getattr(self._hass, "loop", None) or asyncio.get_running_loop()
+        self._refresh_handle = loop.call_later(
+            self._refresh_interval.total_seconds(),
+            self._start_scheduled_refresh,
+        )
+
+    def _cancel_next_refresh(self) -> None:
+        """Cancel pending session refresh callback."""
+        if self._refresh_handle is not None:
+            self._refresh_handle.cancel()
+            self._refresh_handle = None
+
+    def _start_scheduled_refresh(self) -> None:
+        """Start asynchronous scheduled session refresh task."""
+        self._refresh_handle = None
+        if not self._enabled:
+            return
+        if self._refresh_task and not self._refresh_task.done():
+            return
+        self._refresh_task = self._hass.async_create_task(self._run_scheduled_refresh())
+
+    async def _run_scheduled_refresh(self) -> None:
+        """Run scheduled session refresh once."""
+        try:
+            await self._async_refresh_from_api()
+        finally:
+            self._refresh_task = None
+
+    @classmethod
+    def _parse_session_snapshot(cls, payload: dict[str, Any]) -> SessionSnapshot:
+        """Parse raw Fortum session payload into typed snapshot."""
+        user_data = payload.get("user") if isinstance(payload, dict) else None
+        if not isinstance(user_data, dict):
+            raise InvalidResponseError("Session payload missing user object")
+
+        delivery_sites = user_data.get("deliverySites")
+        points: list[MeteringPoint] = []
+        areas: list[str] = []
+        if isinstance(delivery_sites, list):
+            for site in delivery_sites:
+                if not isinstance(site, dict):
+                    continue
+                try:
+                    point = MeteringPoint.from_api_response(site)
+                except (TypeError, ValueError):
+                    continue
+                points.append(point)
+
+                price_area = point.price_area
+                if price_area and price_area not in areas:
+                    areas.append(price_area)
+
+                nested_area = cls._extract_nested_price_area(site)
+                if nested_area and nested_area not in areas:
+                    areas.append(nested_area)
+
+        customer_id_raw = user_data.get("customerId")
+        customer_id = str(customer_id_raw) if customer_id_raw else None
+        customer_details: CustomerDetails | None = None
+        try:
+            customer_details = CustomerDetails.from_api_response(payload)
+        except (KeyError, TypeError, ValueError):
+            customer_details = None
+
+        return SessionSnapshot(
+            customer_id=customer_id,
+            customer_details=customer_details,
+            metering_points=tuple(points),
+            price_areas=tuple(areas),
+            updated_at_utc=dt_util.utcnow(),
+        )
+
+    @staticmethod
+    def _extract_nested_price_area(site: dict[str, Any]) -> str | None:
+        """Extract fallback nested price-area value from delivery-site payload."""
+        consumption = site.get("consumption")
+        if not isinstance(consumption, dict):
+            return None
+
+        raw = consumption.get("priceArea")
+        if not isinstance(raw, str) or not raw.strip():
+            return None
+        return raw.strip().upper()
+
+    @staticmethod
+    def _has_semantic_change(
+        previous: SessionSnapshot,
+        current: SessionSnapshot,
+    ) -> bool:
+        """Return True when meaningful session content changed."""
+        if previous.customer_id != current.customer_id:
+            return True
+
+        if previous.customer_details != current.customer_details:
+            return True
+
+        if set(previous.price_areas) != set(current.price_areas):
+            return True
+
+        previous_points = sorted(
+            previous.metering_points,
+            key=lambda point: point.metering_point_no,
+        )
+        current_points = sorted(
+            current.metering_points,
+            key=lambda point: point.metering_point_no,
+        )
+        return previous_points != current_points

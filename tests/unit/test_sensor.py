@@ -1,5 +1,6 @@
 """Tests for sensor platform setup."""
 
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from custom_components.fortum.const import (
@@ -162,7 +163,13 @@ async def test_sensor_setup_creates_norgespris_sensor_for_norway(mock_hass) -> N
                 "coordinator": Mock(),
                 "price_coordinator": Mock(),
                 "device": Mock(),
-                "metering_points": [metering_point],
+                "session_manager": Mock(
+                    get_snapshot=Mock(
+                        return_value=SimpleNamespace(
+                            metering_points=(metering_point,),
+                        )
+                    )
+                ),
             }
         }
     }
@@ -199,7 +206,13 @@ async def test_sensor_setup_does_not_create_norgespris_sensor_outside_norway(
                 "coordinator": Mock(),
                 "price_coordinator": Mock(),
                 "device": Mock(),
-                "metering_points": [metering_point],
+                "session_manager": Mock(
+                    get_snapshot=Mock(
+                        return_value=SimpleNamespace(
+                            metering_points=(metering_point,),
+                        )
+                    )
+                ),
             }
         }
     }

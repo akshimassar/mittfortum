@@ -37,17 +37,15 @@ def _has_authenticated_session(hass: HomeAssistant, entry_id: str) -> bool:
     if not isinstance(entry_data, dict):
         return False
 
-    api_client = entry_data.get("api_client")
-    auth_client = getattr(api_client, "_auth_client", None)
-    if auth_client is None:
+    session_manager = entry_data.get("session_manager")
+    if session_manager is None:
         return False
 
-    session_data = getattr(auth_client, "session_data", None)
-    if isinstance(session_data, dict) and isinstance(session_data.get("user"), dict):
-        return True
+    snapshot = session_manager.get_snapshot()
+    if snapshot is None:
+        return False
 
-    access_token = getattr(auth_client, "access_token", None)
-    return isinstance(access_token, str) and bool(access_token)
+    return bool(snapshot.customer_id or snapshot.metering_points)
 
 
 async def async_setup_entry(

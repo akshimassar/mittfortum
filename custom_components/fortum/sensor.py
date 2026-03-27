@@ -36,8 +36,10 @@ async def async_setup_entry(
     coordinator = data["coordinator"]
     price_coordinator = data.get("price_coordinator", coordinator)
     api_client = data.get("api_client")
+    session_manager = data.get("session_manager")
     device = data["device"]
-    metering_points = data.get("metering_points", [])
+    snapshot = session_manager.get_snapshot() if session_manager is not None else None
+    metering_points = list(snapshot.metering_points) if snapshot else []
     region = entry.data.get(CONF_REGION, DEFAULT_REGION)
     price_areas = []
     if api_client is not None and hasattr(api_client, "get_price_areas"):

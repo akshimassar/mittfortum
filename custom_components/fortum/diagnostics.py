@@ -91,6 +91,10 @@ async def async_get_config_entry_diagnostics(
     if not isinstance(entry_data, dict):
         entry_data = {}
 
+    session_manager = entry_data.get("session_manager")
+    snapshot = session_manager.get_snapshot() if session_manager is not None else None
+    metering_points_count = len(snapshot.metering_points) if snapshot else 0
+
     raw_logs = get_diagnostics_log_snapshot(hass)
     safe_logs = []
     for row in raw_logs:
@@ -112,7 +116,7 @@ async def async_get_config_entry_diagnostics(
         },
         "runtime": {
             "region": entry.data.get(CONF_REGION),
-            "metering_points_count": len(entry_data.get("metering_points", [])),
+            "metering_points_count": metering_points_count,
             "has_api_client": entry_data.get("api_client") is not None,
             "coordinator": _coordinator_summary(entry_data.get("coordinator")),
             "price_coordinator": _coordinator_summary(

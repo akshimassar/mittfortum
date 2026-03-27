@@ -73,6 +73,7 @@ OAUTH_AUTH_URL = f"{OAUTH_BASE_URL}/am/json/realms/root/realms/alpha/authenticat
 DEFAULT_UPDATE_INTERVAL = timedelta(minutes=30)
 PRICE_UPDATE_INTERVAL = timedelta(minutes=5)
 TOKEN_REFRESH_INTERVAL = timedelta(minutes=5)
+SESSION_REFRESH_INTERVAL = timedelta(hours=3)
 
 # Device information
 MANUFACTURER = "Fortum"

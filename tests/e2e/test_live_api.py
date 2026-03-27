@@ -28,6 +28,7 @@ from custom_components.fortum.const import (
     DOMAIN,
     HOURLY_DATA_REQUEST_TIMEOUT_SECONDS,
 )
+from custom_components.fortum.session_manager import SessionManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -249,41 +250,48 @@ async def _session_debug_snapshot(api_client: FortumAPIClient) -> dict[str, obje
     return snapshot
 
 
-@pytest.mark.e2e
-async def test_live_auth_and_data_flow(
-    live_hass: HomeAssistant, e2e_settings: E2ESettings
-):
-    """Validate login, session discovery, and a real data fetch."""
+async def _authenticate_with_session_manager(
+    live_hass: HomeAssistant,
+    e2e_settings: E2ESettings,
+) -> tuple[OAuth2AuthClient, FortumAPIClient, SessionManager]:
+    """Authenticate and hydrate a SessionManager snapshot for E2E flows."""
     auth_client = OAuth2AuthClient(
         hass=live_hass,
         username=e2e_settings.username,
         password=e2e_settings.password,
         region=e2e_settings.region,
     )
-
     api_client = FortumAPIClient(live_hass, auth_client)
+    session_manager = SessionManager(live_hass, "e2e-entry", api_client)
+    api_client.set_session_snapshot_provider(session_manager.get_snapshot)
+    auth_client.set_session_update_callback(session_manager.async_update_from_payload)
+    await auth_client.authenticate()
+    return auth_client, api_client, session_manager
+
+
+@pytest.mark.e2e
+async def test_live_auth_and_data_flow(
+    live_hass: HomeAssistant, e2e_settings: E2ESettings
+):
+    """Validate login, session discovery, and a real data fetch."""
+    auth_client, api_client, session_manager = await _authenticate_with_session_manager(
+        live_hass,
+        e2e_settings,
+    )
 
     _LOGGER.info("Starting live E2E flow for region=%s", e2e_settings.region)
 
-    try:
-        await auth_client.authenticate()
-    except Exception as exc:  # pragma: no cover - live diagnostics path
-        endpoint_probe = await _probe_auth_endpoints(live_hass, e2e_settings.region)
-        pytest.fail(
-            _format_error("Authentication", exc)
-            + f" | endpoint_probe={_safe_preview(endpoint_probe, max_len=3000)}"
-        )
+    snapshot = session_manager.get_snapshot()
+    assert snapshot is not None, "Session snapshot missing after login"
+    assert snapshot.customer_id, "Session snapshot missing customer_id"
 
-    assert auth_client.session_data is not None, "Session data missing after login"
-    assert auth_client.session_data.get("user"), (
-        "No user object found in session. "
-        f"Session keys: {list(auth_client.session_data.keys())}"
+    session_payload = await api_client.get_session_payload()
+    auth_session_keys = (
+        list(session_payload.keys()) if isinstance(session_payload, dict) else []
     )
-
-    auth_session_keys = list(auth_client.session_data.keys())
     auth_user_keys = []
-    if isinstance(auth_client.session_data.get("user"), dict):
-        auth_user_keys = list(auth_client.session_data["user"].keys())
+    if isinstance(session_payload.get("user"), dict):
+        auth_user_keys = list(session_payload["user"].keys())
     _LOGGER.info(
         "Session keys after authenticate: top=%s user=%s",
         auth_session_keys,
@@ -291,7 +299,7 @@ async def test_live_auth_and_data_flow(
     )
 
     user_marker_paths = _collect_marker_paths(
-        auth_client.session_data.get("user"),
+        session_payload.get("user"),
         marker_terms=("earliest", "oldest", "availablefrom", "available_from"),
     )
     _LOGGER.info(
@@ -409,15 +417,11 @@ async def test_live_fetch_hourly_from_session_earliest_marker(
             "Set FORTUM_E2E_HISTORICAL=1 to run session-earliest hourly fetch probe"
         )
 
-    auth_client = OAuth2AuthClient(
-        hass=live_hass,
-        username=e2e_settings.username,
-        password=e2e_settings.password,
-        region=e2e_settings.region,
+    _, api_client, _ = await _authenticate_with_session_manager(
+        live_hass,
+        e2e_settings,
     )
-    await auth_client.authenticate()
 
-    api_client = FortumAPIClient(live_hass, auth_client)
     metering_points = await api_client.get_metering_points()
     if not metering_points:
         pytest.fail("No metering points available for session-earliest fetch probe")

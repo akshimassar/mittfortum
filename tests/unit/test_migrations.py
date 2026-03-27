@@ -85,7 +85,7 @@ async def test_migrate_unique_ids_to_entry_id_updates_entities_and_device(
         await async_migrate_unique_ids_to_entry_id(
             mock_hass,
             cast(Any, entry),
-            session_data={"user": {"customerId": "55650898"}},
+            customer_id="55650898",
             username="test@example.com",
         )
 
@@ -136,7 +136,7 @@ async def test_migrate_unique_ids_to_entry_id_skips_when_already_migrated(
         await async_migrate_unique_ids_to_entry_id(
             mock_hass,
             cast(Any, entry),
-            session_data={"user": {"customerId": "55650898"}},
+            customer_id="55650898",
             username="test@example.com",
         )
 
@@ -186,7 +186,7 @@ async def test_migrate_unique_ids_to_entry_id_skips_collision(
         await async_migrate_unique_ids_to_entry_id(
             mock_hass,
             cast(Any, entry),
-            session_data={"user": {"customerId": "55650898"}},
+            customer_id="55650898",
             username="test@example.com",
         )
 
@@ -231,7 +231,7 @@ async def test_migrate_unique_ids_to_entry_id_uses_username_prefix_when_needed(
         await async_migrate_unique_ids_to_entry_id(
             mock_hass,
             cast(Any, entry),
-            session_data=None,
+            customer_id=None,
             username="user@example.com",
         )
 

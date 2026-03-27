@@ -156,10 +156,12 @@ def test_buttons_available_with_authenticated_session() -> None:
     coordinator.hass.data = {
         "fortum": {
             "entry_1": {
-                "api_client": Mock(
-                    _auth_client=Mock(
-                        session_data={"user": {"customerId": "123"}},
-                        access_token="session_based",
+                "session_manager": Mock(
+                    get_snapshot=Mock(
+                        return_value=Mock(
+                            customer_id="123",
+                            metering_points=(),
+                        )
                     )
                 )
             }
@@ -172,3 +174,25 @@ def test_buttons_available_with_authenticated_session() -> None:
 
     assert full_sync.available is True
     assert clear_stats.available is True
+
+
+def test_buttons_unavailable_without_session_snapshot() -> None:
+    """Debug buttons should be unavailable without SessionManager snapshot."""
+    coordinator = Mock()
+    coordinator.last_update_success = False
+    coordinator.data = None
+    coordinator.hass = Mock()
+    coordinator.hass.data = {
+        "fortum": {
+            "entry_1": {
+                "session_manager": Mock(get_snapshot=Mock(return_value=None)),
+            }
+        }
+    }
+    entry = Mock(entry_id="entry_1")
+
+    full_sync = FortumFullHistoryResyncButton(coordinator, _mock_device(), entry)
+    clear_stats = FortumClearStatisticsButton(coordinator, _mock_device(), entry)
+
+    assert full_sync.available is False
+    assert clear_stats.available is False

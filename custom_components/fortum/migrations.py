@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from homeassistant.helpers import device_registry, entity_registry
 
@@ -14,21 +14,6 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _extract_customer_id(session_data: dict[str, Any] | None) -> str | None:
-    """Extract customerId from session payload when available."""
-    if not isinstance(session_data, dict):
-        return None
-
-    user_data = session_data.get("user")
-    if not isinstance(user_data, dict):
-        return None
-
-    customer_id = user_data.get("customerId")
-    if isinstance(customer_id, str) and customer_id.strip():
-        return customer_id
-    return None
 
 
 def _migrate_target_unique_id(
@@ -55,7 +40,7 @@ async def async_migrate_unique_ids_to_entry_id(
     hass: HomeAssistant,
     entry: ConfigEntry,
     *,
-    session_data: dict[str, Any] | None,
+    customer_id: str | None,
     username: str,
 ) -> None:
     """Migrate Fortum entity and device identifiers to entry_id base."""
@@ -67,8 +52,7 @@ async def async_migrate_unique_ids_to_entry_id(
     entry_id = entry.entry_id
     legacy_prefixes = {username}
 
-    customer_id = _extract_customer_id(session_data)
-    if customer_id is not None:
+    if customer_id is not None and customer_id.strip():
         legacy_prefixes.add(customer_id)
 
     registry = entity_registry.async_get(hass)

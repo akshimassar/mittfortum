@@ -64,7 +64,11 @@ class TestDiagnostics:
             entry.entry_id: {
                 "coordinator": coordinator,
                 "price_coordinator": price_coordinator,
-                "metering_points": [Mock(), Mock()],
+                "session_manager": SimpleNamespace(
+                    get_snapshot=lambda: SimpleNamespace(
+                        metering_points=(Mock(), Mock())
+                    )
+                ),
                 "api_client": object(),
             }
         }

@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import logging
 import re
+from collections.abc import Callable
 from datetime import date as date_cls
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
     )
     from homeassistant.core import HomeAssistant
 
+    from ..session_manager import SessionSnapshot
     from .auth import OAuth2AuthClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -70,25 +72,31 @@ class FortumAPIClient:
         self._earliest_available_by_metering_point: dict[str, datetime] = {}
         self._last_price_forecast_digest_by_area: dict[str, str] = {}
         self._last_hourly_stats_digest: str | None = None
+        self._session_snapshot_provider: Callable[[], SessionSnapshot | None] | None = (
+            None
+        )
+
+    def set_session_snapshot_provider(
+        self,
+        provider: Callable[[], SessionSnapshot | None],
+    ) -> None:
+        """Set callable returning current parsed session snapshot."""
+        self._session_snapshot_provider = provider
 
     async def get_customer_id(self) -> str:
-        """Extract customer ID from session data or ID token."""
-        # For session-based authentication, get customer ID from session data
-        session_data = self._auth_client.session_data
-        if session_data and "user" in session_data:
-            user_data = session_data["user"]
-            customer_id = user_data.get("customerId")
-            if customer_id:
-                return customer_id
+        """Extract customer ID from session snapshot or ID token."""
+        snapshot = self._get_session_snapshot()
+        if snapshot is not None and snapshot.customer_id:
+            return snapshot.customer_id
 
         # Fall back to JWT token extraction for token-based authentication
         id_token = self._auth_client.id_token
         if not id_token:
-            raise APIError("No ID token or session data available")
+            raise APIError("No ID token or session snapshot available")
 
         # Skip JWT decoding for session-based dummy tokens
         if id_token == "session_based":
-            raise APIError("Customer ID not found in session data")
+            raise APIError("Customer ID not found in session snapshot")
 
         try:
             import jwt
@@ -99,36 +107,30 @@ class FortumAPIClient:
             raise APIError(f"Failed to extract customer ID: {exc}") from exc
 
     async def get_customer_details(self) -> CustomerDetails:
-        """Fetch customer details using session endpoint."""
-        response = await self._get(self._endpoints.session)
+        """Return customer details from session snapshot."""
+        snapshot = self._get_session_snapshot()
+        if snapshot is None or snapshot.customer_details is None:
+            raise APIError("Customer details not available in session snapshot")
+        return snapshot.customer_details
 
+    async def get_session_payload(self) -> dict[str, Any]:
+        """Fetch and return raw session payload from session endpoint."""
+        response = await self._get(self._endpoints.session)
         try:
-            json_data = response.json()
-            return CustomerDetails.from_api_response(json_data)
-        except (ValueError, KeyError) as exc:
-            raise InvalidResponseError(
-                f"Invalid customer details response: {exc}"
-            ) from exc
+            payload = response.json()
+        except ValueError as exc:
+            raise InvalidResponseError("Invalid JSON in session payload") from exc
+
+        if not isinstance(payload, dict):
+            raise InvalidResponseError("Session payload is not an object")
+        return payload
 
     async def get_metering_points(self) -> list[MeteringPoint]:
         """Fetch metering points from session endpoint."""
-        response = await self._get(self._endpoints.session)
-
-        try:
-            json_data = response.json()
-
-            # Extract delivery sites from session response
-            if "user" in json_data and "deliverySites" in json_data["user"]:
-                delivery_sites = json_data["user"]["deliverySites"]
-                return [
-                    MeteringPoint.from_api_response(site) for site in delivery_sites
-                ]
-            else:
-                return []
-        except (ValueError, KeyError, TypeError) as exc:
-            raise InvalidResponseError(
-                f"Invalid metering points response: {exc}"
-            ) from exc
+        snapshot = self._get_session_snapshot()
+        if snapshot is None:
+            return []
+        return list(snapshot.metering_points)
 
     async def get_time_series_data(
         self,
@@ -1292,34 +1294,18 @@ class FortumAPIClient:
         """Return explicit price areas from session payload."""
         return self._resolve_price_areas()
 
+    def _get_session_snapshot(self) -> SessionSnapshot | None:
+        """Return parsed session snapshot when provider is configured."""
+        if self._session_snapshot_provider is None:
+            return None
+        return self._session_snapshot_provider()
+
     def _resolve_price_areas(self) -> list[str]:
         """Resolve explicit price areas from authenticated session payload."""
-        session_data = self._auth_client.session_data or {}
-        areas: list[str] = []
-        if isinstance(session_data, dict):
-            user_data = session_data.get("user")
-            if isinstance(user_data, dict):
-                delivery_sites = user_data.get("deliverySites")
-                if isinstance(delivery_sites, list):
-                    for site in delivery_sites:
-                        if not isinstance(site, dict):
-                            continue
-                        for key_path in (
-                            ("priceArea",),
-                            ("consumption", "priceArea"),
-                        ):
-                            value: Any = site
-                            for key in key_path:
-                                if not isinstance(value, dict):
-                                    value = None
-                                    break
-                                value = value.get(key)
-                            if isinstance(value, str) and value.strip():
-                                area_code = value.strip().upper()
-                                if area_code and area_code not in areas:
-                                    areas.append(area_code)
-
-        return areas
+        snapshot = self._get_session_snapshot()
+        if snapshot is None:
+            return []
+        return list(snapshot.price_areas)
 
     async def _get(
         self,
