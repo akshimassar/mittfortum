@@ -15,7 +15,7 @@ from .exceptions import APIError, InvalidResponseError
 from .models import CustomerDetails, MeteringPoint
 from .sensors.metering_point import MeteringPointSensorRegistry
 from .sensors.price import PriceAreaSensorRegistry
-from .sensors.stats_last_sync import FortumStatisticsLastSyncSensor
+from .sensors.stats_last_sync import StaticSensorRegistry
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -49,6 +49,7 @@ class SensorPlatformRuntime:
 
     metering_points: MeteringPointSensorRegistry
     price_areas: PriceAreaSensorRegistry
+    static: StaticSensorRegistry
 
 
 class SessionManager:
@@ -110,7 +111,6 @@ class SessionManager:
         price_coordinator: SpotPriceSyncCoordinator,
         device: FortumDevice,
         region: str,
-        debug_entities: bool,
     ) -> None:
         """Register sensor platform runtime and add initial entities."""
         if self._state == STATE_STOPPED:
@@ -136,14 +136,13 @@ class SessionManager:
                 region,
                 (),
             ),
+            static=StaticSensorRegistry(
+                async_add_entities,
+                coordinator,
+                device,
+            ),
         )
         self._sensor_platform = runtime
-
-        if debug_entities:
-            async_add_entities(
-                [FortumStatisticsLastSyncSensor(coordinator, device)],
-                update_before_add=False,
-            )
 
         payload = self._setup_waiting_payload
         self._setup_waiting_payload = None

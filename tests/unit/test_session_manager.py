@@ -78,7 +78,6 @@ async def test_update_from_payload_buffers_until_platform_setup(mock_hass) -> No
         price_coordinator=Mock(),
         device=device,
         region="no",
-        debug_entities=False,
     )
 
     snapshot = manager.get_snapshot()
@@ -141,7 +140,6 @@ async def test_sensor_platform_live_adds_new_metering_points_and_areas(
         price_coordinator=Mock(),
         device=device,
         region="no",
-        debug_entities=True,
     )
 
     initial_count = len(captured_entities)
@@ -206,7 +204,6 @@ async def test_update_changes_existing_metering_point_values_in_place(
         price_coordinator=Mock(),
         device=device,
         region="no",
-        debug_entities=False,
     )
 
     info_sensor = next(
@@ -271,7 +268,6 @@ async def test_update_ignores_delivery_site_ordering(mock_hass) -> None:
         price_coordinator=Mock(),
         device=device,
         region="no",
-        debug_entities=False,
     )
 
     await manager.async_update_from_payload(
@@ -281,7 +277,7 @@ async def test_update_ignores_delivery_site_ordering(mock_hass) -> None:
 
     await asyncio.sleep(0)
 
-    assert len(captured_entities) == 10
+    assert len(captured_entities) == 11
 
     await manager.stop()
 
@@ -304,7 +300,6 @@ async def test_setup_sensor_platform_requires_snapshot(mock_hass) -> None:
             price_coordinator=Mock(),
             device=Mock(),
             region="no",
-            debug_entities=False,
         )
 
 
@@ -326,7 +321,6 @@ async def test_refresh_from_api_failure_keeps_previous_snapshot(mock_hass) -> No
         price_coordinator=Mock(),
         device=Mock(),
         region="no",
-        debug_entities=False,
     )
 
     previous_snapshot = manager.get_snapshot()

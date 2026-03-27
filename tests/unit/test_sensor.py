@@ -3,7 +3,6 @@
 from unittest.mock import AsyncMock, Mock
 
 from custom_components.fortum.const import (
-    CONF_DEBUG_ENTITIES,
     CONF_REGION,
     DEFAULT_REGION,
     DOMAIN,
@@ -16,7 +15,7 @@ async def test_sensor_setup_delegates_to_session_manager(mock_hass) -> None:
     entry = Mock()
     entry.entry_id = "entry-id"
     entry.data = {CONF_REGION: DEFAULT_REGION}
-    entry.options = {CONF_DEBUG_ENTITIES: True}
+    entry.options = {}
 
     session_manager = Mock(async_setup_sensor_platform=AsyncMock())
     coordinator = Mock()
@@ -45,7 +44,6 @@ async def test_sensor_setup_delegates_to_session_manager(mock_hass) -> None:
         price_coordinator=price_coordinator,
         device=device,
         region=DEFAULT_REGION,
-        debug_entities=True,
     )
 
 
@@ -54,7 +52,7 @@ async def test_sensor_setup_uses_coordinator_as_price_fallback(mock_hass) -> Non
     entry = Mock()
     entry.entry_id = "entry-id"
     entry.data = {CONF_REGION: "no"}
-    entry.options = {CONF_DEBUG_ENTITIES: False}
+    entry.options = {}
 
     session_manager = Mock(async_setup_sensor_platform=AsyncMock())
     coordinator = Mock()
@@ -81,5 +79,4 @@ async def test_sensor_setup_uses_coordinator_as_price_fallback(mock_hass) -> Non
         price_coordinator=coordinator,
         device=device,
         region="no",
-        debug_entities=False,
     )

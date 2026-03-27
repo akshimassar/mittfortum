@@ -5,9 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .const import (
-    CONF_DEBUG_ENTITIES,
     CONF_REGION,
-    DEFAULT_DEBUG_ENTITIES,
     DEFAULT_REGION,
     DOMAIN,
 )
@@ -30,7 +28,6 @@ async def async_setup_entry(
     session_manager = data["session_manager"]
     device = data["device"]
     region = entry.data.get(CONF_REGION, DEFAULT_REGION)
-    debug_entities = entry.options.get(CONF_DEBUG_ENTITIES, DEFAULT_DEBUG_ENTITIES)
 
     await session_manager.async_setup_sensor_platform(
         async_add_entities,
@@ -38,5 +35,4 @@ async def async_setup_entry(
         price_coordinator=price_coordinator,
         device=device,
         region=region,
-        debug_entities=debug_entities,
     )

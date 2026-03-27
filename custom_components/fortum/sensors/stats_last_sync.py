@@ -5,13 +5,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
-from homeassistant.helpers.entity import EntityCategory
+from homeassistant.const import EntityCategory
 
 from ..const import STATS_LAST_SYNC_SENSOR_KEY
 from ..entity import FortumEntity
 
 if TYPE_CHECKING:
     from datetime import datetime
+
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from ..coordinators import HourlyConsumptionSyncCoordinator
     from ..device import FortumDevice
@@ -59,3 +61,19 @@ class FortumStatisticsLastSyncSensor(FortumEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return coordinator update health details."""
         return {"last_update_success": self.coordinator.last_update_success}
+
+
+class StaticSensorRegistry:
+    """Registry for integration-wide static sensors."""
+
+    def __init__(
+        self,
+        async_add_entities: AddEntitiesCallback,
+        coordinator: HourlyConsumptionSyncCoordinator,
+        device: FortumDevice,
+    ) -> None:
+        """Initialize and add static sensors once."""
+        async_add_entities(
+            [FortumStatisticsLastSyncSensor(coordinator, device)],
+            update_before_add=False,
+        )
