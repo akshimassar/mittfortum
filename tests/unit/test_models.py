@@ -148,6 +148,9 @@ class TestMeteringPoint:
                 "meteringPointNo": "6094111",
                 "meteringPointId": "643003825101336249",
                 "priceArea": "se3",
+                "norgespris": {
+                    "consumptionMaxLimit": 4000,
+                },
                 "measurementDates": [
                     {
                         "firstDate": "2025-01-06T00:00:00.000+02:00",
@@ -175,6 +178,7 @@ class TestMeteringPoint:
         assert point.metering_point_id == "643003825101336249"
         assert point.address == "Somethingtie 123, 00100 Helsinki"
         assert point.price_area == "SE3"
+        assert point.norgespris_consumption_limit == 4000.0
         assert point.earliest_hourly_available_at_utc == datetime.fromisoformat(
             "2025-01-06T00:00:00+02:00"
         )

@@ -6,6 +6,7 @@ from custom_components.fortum.device import FortumDevice
 from custom_components.fortum.models import MeteringPoint
 from custom_components.fortum.sensors.metering_point import (
     FortumMeteringPointSensor,
+    FortumNorgesprisConsumptionLimitSensor,
 )
 
 
@@ -87,3 +88,26 @@ def test_metering_point_sensor_area_without_address() -> None:
         "metering_point_no": "6094111",
         "price_area": "SE3",
     }
+
+
+def test_norgespris_consumption_limit_sensor() -> None:
+    """Norgespris consumption-limit sensor should expose kWh value."""
+    device = Mock(spec=FortumDevice)
+    device.unique_id = "customer_123"
+    device.device_info = {
+        "identifiers": {("fortum", "customer_123")},
+        "name": "Fortum Account",
+        "manufacturer": "Fortum",
+        "model": "Fortum",
+    }
+
+    metering_point = MeteringPoint(
+        metering_point_no="6094111",
+        norgespris_consumption_limit=4000.0,
+    )
+
+    sensor = FortumNorgesprisConsumptionLimitSensor(device, metering_point)
+
+    assert sensor.name == "Norgespris consumption limit 6094111"
+    assert sensor.native_value == 4000.0
+    assert sensor.native_unit_of_measurement == "kWh"

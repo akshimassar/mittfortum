@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.helpers.entity import EntityCategory
+from homeassistant.const import EntityCategory
+
+from ..const import NORGESPRIS_CONSUMPTION_LIMIT_SENSOR_KEY
 
 if TYPE_CHECKING:
     from homeassistant.helpers.device_registry import DeviceInfo
@@ -60,3 +62,32 @@ class FortumMeteringPointSensor(SensorEntity):
         if self._metering_point.price_area:
             attributes["price_area"] = self._metering_point.price_area
         return attributes
+
+
+class FortumNorgesprisConsumptionLimitSensor(SensorEntity):
+    """Sensor exposing Norgespris consumption limit for one metering point."""
+
+    _attr_icon = "mdi:gauge"
+    _attr_native_unit_of_measurement = "kWh"
+
+    def __init__(self, device: FortumDevice, metering_point: MeteringPoint) -> None:
+        """Initialize Norgespris consumption limit sensor."""
+        self._device = device
+        self._metering_point = metering_point
+        self._attr_name = (
+            f"Norgespris consumption limit {metering_point.metering_point_no}"
+        )
+        self._attr_unique_id = (
+            f"{device.unique_id}_{NORGESPRIS_CONSUMPTION_LIMIT_SENSOR_KEY}_"
+            f"{metering_point.metering_point_no}"
+        )
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return self._device.device_info
+
+    @property
+    def native_value(self) -> float | None:
+        """Return Norgespris consumption limit in kWh."""
+        return self._metering_point.norgespris_consumption_limit

@@ -13,6 +13,7 @@ from .const import (
 )
 from .sensors import (
     FortumMeteringPointSensor,
+    FortumNorgesprisConsumptionLimitSensor,
     FortumPriceSensor,
     FortumStatisticsLastSyncSensor,
     FortumTomorrowMaxPriceSensor,
@@ -59,6 +60,11 @@ async def async_setup_entry(
         *[
             FortumMeteringPointSensor(device, metering_point)
             for metering_point in metering_points
+        ],
+        *[
+            FortumNorgesprisConsumptionLimitSensor(device, metering_point)
+            for metering_point in metering_points
+            if region == "no"
         ],
     ]
 

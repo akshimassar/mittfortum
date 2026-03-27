@@ -305,6 +305,7 @@ class MeteringPoint:
     metering_point_id: str | None = None
     address: str | None = None
     price_area: str | None = None
+    norgespris_consumption_limit: float | None = None
     earliest_hourly_available_at_utc: datetime | None = None
 
     @classmethod
@@ -341,11 +342,19 @@ class MeteringPoint:
         if isinstance(price_area_raw, str) and price_area_raw.strip():
             price_area = price_area_raw.strip().upper()
 
+        norgespris = consumption.get("norgespris")
+        norgespris_consumption_limit: float | None = None
+        if isinstance(norgespris, dict):
+            consumption_limit_raw = norgespris.get("consumptionMaxLimit")
+            if isinstance(consumption_limit_raw, int | float):
+                norgespris_consumption_limit = float(consumption_limit_raw)
+
         return cls(
             metering_point_no=str(metering_point_no),
             metering_point_id=str(metering_point_id) if metering_point_id else None,
             address=address,
             price_area=price_area,
+            norgespris_consumption_limit=norgespris_consumption_limit,
             earliest_hourly_available_at_utc=earliest_hourly_available_at_utc,
         )
 

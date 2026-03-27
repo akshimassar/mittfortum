@@ -10,6 +10,7 @@ from custom_components.fortum.const import (
 )
 from custom_components.fortum.sensor import async_setup_entry
 from custom_components.fortum.sensors import (
+    FortumNorgesprisConsumptionLimitSensor,
     FortumPriceSensor,
     FortumStatisticsLastSyncSensor,
     FortumTomorrowMaxPriceSensor,
@@ -141,4 +142,76 @@ async def test_sensor_setup_creates_spot_entities_per_price_area(mock_hass) -> N
             ]
         )
         == 2
+    )
+
+
+async def test_sensor_setup_creates_norgespris_sensor_for_norway(mock_hass) -> None:
+    """Norgespris sensor should be created only when configured region is Norway."""
+    entry = Mock()
+    entry.entry_id = "entry-id"
+    entry.data = {CONF_REGION: "no"}
+    entry.options = {CONF_DEBUG_ENTITIES: False}
+
+    metering_point = Mock()
+    metering_point.metering_point_no = "6094111"
+    metering_point.norgespris_consumption_limit = 4000.0
+
+    mock_hass.data = {
+        DOMAIN: {
+            entry.entry_id: {
+                "coordinator": Mock(),
+                "price_coordinator": Mock(),
+                "device": Mock(),
+                "metering_points": [metering_point],
+            }
+        }
+    }
+
+    captured_entities = []
+
+    def _async_add_entities(new_entities, update_before_add=False):
+        captured_entities.extend(new_entities)
+
+    await async_setup_entry(mock_hass, entry, _async_add_entities)
+
+    assert any(
+        isinstance(entity, FortumNorgesprisConsumptionLimitSensor)
+        for entity in captured_entities
+    )
+
+
+async def test_sensor_setup_does_not_create_norgespris_sensor_outside_norway(
+    mock_hass,
+) -> None:
+    """Norgespris sensor should not be created for non-Norway regions."""
+    entry = Mock()
+    entry.entry_id = "entry-id"
+    entry.data = {CONF_REGION: "fi"}
+    entry.options = {CONF_DEBUG_ENTITIES: False}
+
+    metering_point = Mock()
+    metering_point.metering_point_no = "6094111"
+    metering_point.norgespris_consumption_limit = 4000.0
+
+    mock_hass.data = {
+        DOMAIN: {
+            entry.entry_id: {
+                "coordinator": Mock(),
+                "price_coordinator": Mock(),
+                "device": Mock(),
+                "metering_points": [metering_point],
+            }
+        }
+    }
+
+    captured_entities = []
+
+    def _async_add_entities(new_entities, update_before_add=False):
+        captured_entities.extend(new_entities)
+
+    await async_setup_entry(mock_hass, entry, _async_add_entities)
+
+    assert not any(
+        isinstance(entity, FortumNorgesprisConsumptionLimitSensor)
+        for entity in captured_entities
     )
