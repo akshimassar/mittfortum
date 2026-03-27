@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta  # noqa: TC003
+from time import monotonic
 from typing import TYPE_CHECKING
 
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -20,6 +21,8 @@ if TYPE_CHECKING:
     from .session_manager import SessionManager, SessionSnapshot
 
 _LOGGER = logging.getLogger(__name__)
+_COORDINATOR_LOGGER = logging.getLogger(f"{__name__}.refresh")
+_COORDINATOR_LOGGER.setLevel(logging.INFO)
 
 
 class HourlyConsumptionSyncCoordinator(DataUpdateCoordinator[list[ConsumptionData]]):
@@ -35,7 +38,7 @@ class HourlyConsumptionSyncCoordinator(DataUpdateCoordinator[list[ConsumptionDat
         """Initialize scheduler."""
         super().__init__(
             hass,
-            _LOGGER,
+            _COORDINATOR_LOGGER,
             name="Fortum",
             update_interval=update_interval,
         )
@@ -79,14 +82,9 @@ class HourlyConsumptionSyncCoordinator(DataUpdateCoordinator[list[ConsumptionDat
     async def _async_update_data(self) -> list[ConsumptionData]:
         """Fetch data from API."""
         try:
-            _LOGGER.debug("hourly sync start")
             data: list[ConsumptionData] = []
-            imported_points = await self.async_run_statistics_sync(
+            await self.async_run_statistics_sync(
                 force_resync=False,
-            )
-            _LOGGER.debug(
-                "hourly sync processed_points=%d",
-                imported_points,
             )
         except APIError as exc:
             _LOGGER.exception("hourly sync API error")
@@ -116,7 +114,7 @@ class SpotPriceSyncCoordinator(DataUpdateCoordinator[list[SpotPricePoint]]):
         """Initialize price scheduler."""
         super().__init__(
             hass,
-            _LOGGER,
+            _COORDINATOR_LOGGER,
             name="Fortum Price",
             update_interval=update_interval,
         )
@@ -133,16 +131,17 @@ class SpotPriceSyncCoordinator(DataUpdateCoordinator[list[SpotPricePoint]]):
     async def _async_update_data(self) -> list[SpotPricePoint]:
         """Fetch price data from API."""
         try:
-            _LOGGER.debug("spot price sync start")
             snapshot = self._require_snapshot()
+            start = monotonic()
             data = await self.api_client.fetch_spot_prices_for_areas(
                 snapshot.price_areas,
             )
             if data is None:
                 data = []
             _LOGGER.debug(
-                "spot price sync fetched_records=%d",
+                "spot price refresh done records=%d elapsed=%.3fs",
                 len(data),
+                monotonic() - start,
             )
         except AuthenticationError as exc:
             _LOGGER.exception("spot price sync auth error")

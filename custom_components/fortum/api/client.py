@@ -194,14 +194,6 @@ class FortumAPIClient:
             series_type=series_type,
         )
 
-        _LOGGER.debug(
-            "fetching time series from=%s to=%s resolution=%s series_type=%s",
-            _fmt_day(from_date),
-            _fmt_day(to_date),
-            resolution,
-            series_type or "default",
-        )
-
         response = await self._get(url, request_timeout=request_timeout)
 
         try:
@@ -271,17 +263,6 @@ class FortumAPIClient:
                 two_weeks_ago,
                 utc_now,
                 force_resync=force_resync,
-            )
-
-            _LOGGER.debug(
-                "sync start for %s: start=%s historical=%s "
-                "force_resync=%s two_weeks_ago=%s now=%s",
-                metering_point_no,
-                _fmt_day(sync_start),
-                historical,
-                force_resync,
-                _fmt_day(two_weeks_ago),
-                _fmt_day(utc_now),
             )
 
             if sync_start < utc_now:
@@ -608,13 +589,6 @@ class FortumAPIClient:
         continue_after_missing: bool,
     ) -> int:
         """Fetch hourly data and push derived statistics to HA recorder."""
-        _LOGGER.debug(
-            "hourly stats import start: metering_point_no=%s from=%s to=%s",
-            metering_point_no,
-            _fmt_day(from_date),
-            _fmt_day(to_date),
-        )
-
         local_tz = ZoneInfo(self._endpoints.profile.timezone)
         request_from_local = (
             dt_util.as_utc(from_date)
@@ -1103,13 +1077,6 @@ class FortumAPIClient:
         to_date: date_cls,
     ) -> list[SpotPricePoint] | None:
         """Fetch spot prices for one explicit area code."""
-        _LOGGER.debug(
-            "fetching price data area=%s from_date=%s to_date=%s",
-            area_code,
-            from_date,
-            to_date,
-        )
-
         last_error: APIError | None = None
         for resolution in PRICE_RESOLUTIONS:
             try:
@@ -1171,24 +1138,9 @@ class FortumAPIClient:
 
                 if price_data:
                     price_data.sort(key=lambda point: point.date_time)
-                    _LOGGER.debug(
-                        "fetched price data area=%s using resolution %s: records=%d "
-                        "first=%s last=%s",
-                        area_code,
-                        resolution,
-                        len(price_data),
-                        _fmt_day(price_data[0].date_time),
-                        _fmt_day(price_data[-1].date_time),
-                    )
                     return price_data
             except APIError as exc:
                 last_error = exc
-                _LOGGER.debug(
-                    "price fetch failed area=%s resolution=%s: %s",
-                    area_code,
-                    resolution,
-                    exc,
-                )
 
         if last_error is not None:
             _LOGGER.warning(
