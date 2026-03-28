@@ -234,9 +234,6 @@ class SessionManager:
     def _cancel_next_refresh(self) -> None:
         """Cancel pending session refresh callback."""
         if self._refresh_handle is not None:
-            _LOGGER.debug(
-                "cancelling pending session refresh entry_id=%s", self._entry_id
-            )
             self._refresh_handle.cancel()
             self._refresh_handle = None
 

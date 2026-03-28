@@ -82,6 +82,8 @@ class OAuth2AuthClient:
         self._auth_mode: str | None = None
         self._sso_token_id: str | None = None
         self._sso_success_url: str | None = None
+        self._last_auth_locale: str | None = None
+        self._last_auth_index: str | None = None
 
         # Background token renewal scheduling
         self._token_refresh_task: asyncio.Task | None = None
@@ -198,6 +200,8 @@ class OAuth2AuthClient:
                 _LOGGER.debug("starting OAuth flow")
                 self._sso_token_id = None
                 self._sso_success_url = None
+                self._last_auth_locale = None
+                self._last_auth_index = None
 
                 # Step 1: Initialize Fortum session
                 csrf_token = await self._initialize_fortum_session(client)
@@ -219,8 +223,6 @@ class OAuth2AuthClient:
                 # Step 5: Verify session is established
                 session_data = await self._verify_session_established(client)
 
-                _LOGGER.info("OAuth flow completed")
-
                 # Store session cookies with domain prioritization to fix conflicts
                 self._session_cookies = self._extract_prioritized_cookies(client)
 
@@ -230,8 +232,11 @@ class OAuth2AuthClient:
                 id_token = user_data.get("idToken", SESSION_BASED_TOKEN)
 
                 _LOGGER.debug(
-                    "session established: customer_id=%s delivery_sites=%d",
-                    user_data.get("customerId"),
+                    "OAuth flow completed locale=%s auth_index=%s "
+                    "cookies=%d delivery_sites=%d",
+                    self._last_auth_locale or "unknown",
+                    self._last_auth_index or "unknown",
+                    len(self._session_cookies),
                     len(user_data.get("deliverySites", [])),
                 )
 
@@ -383,7 +388,6 @@ class OAuth2AuthClient:
         if not csrf_token:
             raise OAuth2Error("No CSRF token received")
 
-        _LOGGER.debug("got CSRF token from auth endpoint")
         return csrf_token
 
     async def _initiate_oauth_signin(self, client, csrf_token: str) -> str:
@@ -418,7 +422,6 @@ class OAuth2AuthClient:
             )
             raise OAuth2Error("No OAuth URL received from signin")
 
-        _LOGGER.debug("got OAuth redirect URL from signin response")
         return oauth_url
 
     async def _perform_sso_authentication(self, client, oauth_url: str) -> str | None:
@@ -429,19 +432,16 @@ class OAuth2AuthClient:
         """
         try:
             # Step 1: Navigate to OAuth URL to establish session
-            _LOGGER.debug("navigating to OAuth URL for session setup")
             response = await client.get(
                 oauth_url,
                 timeout=API_DEFAULT_REQUEST_TIMEOUT_SECONDS,
             )
-            _LOGGER.debug("OAuth page status: %d", response.status_code)
 
             if response.status_code != 200 and response.status_code != 302:
                 _LOGGER.warning("OAuth page returned %d", response.status_code)
                 # Continue anyway, as authentication might still work
 
             # Step 2: Use ForgeRock JSON API for authentication
-            _LOGGER.debug("using ForgeRock JSON API for SSO authentication")
 
             auth_url = (
                 "https://sso.fortum.com/am/json/realms/root/realms/alpha/authenticate"
@@ -461,11 +461,6 @@ class OAuth2AuthClient:
                 }
                 auth_full_url = f"{auth_url}?{urlencode(auth_params)}"
 
-                _LOGGER.debug(
-                    "initializing ForgeRock auth locale=%s auth_index_value=%s",
-                    locale,
-                    auth_index_value,
-                )
                 init_resp = await client.post(
                     auth_full_url,
                     headers={
@@ -479,6 +474,8 @@ class OAuth2AuthClient:
                 last_status = init_resp.status_code
                 if init_resp.status_code == 200:
                     init_data = init_resp.json()
+                    self._last_auth_locale = locale
+                    self._last_auth_index = auth_index_value
                     break
 
                 _LOGGER.warning(
@@ -497,8 +494,6 @@ class OAuth2AuthClient:
                 )
                 raise OAuth2Error(f"Auth init failed: {last_status}")
 
-            _LOGGER.debug("auth init succeeded; processing callbacks")
-
             # Check if authId is present
             auth_id = init_data.get("authId")
             if not auth_id:
@@ -506,10 +501,6 @@ class OAuth2AuthClient:
                 # proceed directly
                 success_url = init_data.get("successUrl")
                 if success_url:
-                    _LOGGER.debug(
-                        "no auth_id but success_url present; "
-                        "using success_url for OAuth completion",
-                    )
                     return success_url  # Return the successUrl to use as OAuth URL
                 else:
                     _LOGGER.error(
@@ -523,7 +514,6 @@ class OAuth2AuthClient:
             callbacks = init_data.get("callbacks", [])
 
             # Submit credentials using callback structure
-            _LOGGER.debug("submitting credentials via ForgeRock API")
             for callback in callbacks:
                 if callback.get("type") == "StringAttributeInputCallback":
                     callback["input"] = [
@@ -554,7 +544,6 @@ class OAuth2AuthClient:
                 raise OAuth2Error(f"Login failed: {login_resp.status_code}")
 
             login_data = login_resp.json()
-            _LOGGER.debug("SSO login successful")
 
             token_id = login_data.get("tokenId")
             if token_id:
@@ -562,14 +551,10 @@ class OAuth2AuthClient:
                 success_url = login_data.get("successUrl")
                 if isinstance(success_url, str) and success_url:
                     self._sso_success_url = success_url
-                _LOGGER.debug("SSO login returned token_id for cookie continuation")
                 return None
 
             success_url = login_data.get("successUrl")
             if success_url:
-                _LOGGER.debug(
-                    "SSO login returned success_url; using it for OAuth completion",
-                )
                 return success_url
 
             auth_id = login_data.get("authId")
@@ -636,7 +621,6 @@ class OAuth2AuthClient:
                 follow_redirects=True,
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
-            _LOGGER.debug("OAuth authorization flow completed")
 
         except Exception as exc:
             exc_text = self._format_exception(exc)
@@ -700,15 +684,11 @@ class OAuth2AuthClient:
         if session_data is None:
             raise OAuth2Error("Invalid session data response")
 
-        _LOGGER.debug("session verified successfully")
-
         # Perform a non-blocking session validation check for informational purposes
         # This is purely for logging and won't fail authentication if it doesn't work
         # since the session often takes additional time to propagate across endpoints
         validation_success = await self._validate_session_against_api(client)
-        if validation_success:
-            _LOGGER.debug("session validation passed; session is ready")
-        else:
+        if not validation_success:
             _LOGGER.info(
                 "session validation failed during authentication; "
                 "expected during propagation delay"
@@ -838,7 +818,6 @@ class OAuth2AuthClient:
         result_cookies.update(empty_domain_cookies)
         result_cookies.update(domain_cookies)  # Domain cookies override empty ones
 
-        _LOGGER.debug("stored %d session cookies for API calls", len(result_cookies))
         return result_cookies
 
     def _parse_server_datetime(self, expires_str: str) -> datetime:
@@ -879,7 +858,6 @@ class OAuth2AuthClient:
         """Start one-shot token renewal scheduling."""
         self._renewal_scheduler_enabled = True
         self._schedule_next_token_refresh()
-        _LOGGER.debug("started token renewal scheduling")
 
     async def stop_token_renewal_scheduler(self) -> None:
         """Stop token renewal scheduling and active refresh task."""
