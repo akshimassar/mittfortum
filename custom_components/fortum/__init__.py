@@ -120,7 +120,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         api_client = FortumAPIClient(hass, auth_client)
 
         session_manager = SessionManager(hass, entry.entry_id, api_client)
-        callback_result: Any = auth_client.set_session_update_callback(
+        callback_result = cast(Any, auth_client).set_session_update_callback(
             session_manager.async_update_from_payload
         )
         if isawaitable(callback_result):
@@ -539,7 +539,15 @@ async def _async_bootstrap_energy_preferences(
 ) -> None:
     """Add Fortum energy sources if user has no energy sources configured."""
     manager = await async_get_manager(hass)
-    energy_sources = list((manager.data or {}).get("energy_sources", []))
+    manager_data = manager.data
+    if isinstance(manager_data, dict):
+        raw_energy_sources = manager_data.get("energy_sources")
+    else:
+        raw_energy_sources = None
+
+    energy_sources = (
+        list(raw_energy_sources) if isinstance(raw_energy_sources, list) else []
+    )
     if energy_sources:
         _LOGGER.debug("energy sources already configured; skipping bootstrap")
         return

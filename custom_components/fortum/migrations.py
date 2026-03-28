@@ -55,9 +55,9 @@ async def async_migrate_unique_ids_to_entry_id(
     if customer_id is not None and customer_id.strip():
         legacy_prefixes.add(customer_id)
 
-    registry = entity_registry.async_get(hass)
+    entity_reg = entity_registry.async_get(hass)
     entity_entries = list(
-        entity_registry.async_entries_for_config_entry(registry, entry_id)
+        entity_registry.async_entries_for_config_entry(entity_reg, entry_id)
     )
     fortum_entries = [
         entry_row for entry_row in entity_entries if entry_row.platform == DOMAIN
@@ -90,7 +90,7 @@ async def async_migrate_unique_ids_to_entry_id(
             )
             continue
 
-        registry.async_update_entity(
+        entity_reg.async_update_entity(
             entity_entry.entity_id,
             new_unique_id=target_unique_id,
         )
@@ -103,9 +103,9 @@ async def async_migrate_unique_ids_to_entry_id(
             target_unique_id,
         )
 
-    registry = device_registry.async_get(hass)
+    device_reg = device_registry.async_get(hass)
     for device_entry in device_registry.async_entries_for_config_entry(
-        registry, entry_id
+        device_reg, entry_id
     ):
         identifiers = set(device_entry.identifiers)
         matched_fortum_identifiers = {
@@ -124,7 +124,7 @@ async def async_migrate_unique_ids_to_entry_id(
         new_identifiers = identifiers - matched_fortum_identifiers
         new_identifiers.add(target_identifier)
 
-        registry.async_update_device(
+        device_reg.async_update_device(
             device_entry.id,
             new_identifiers=new_identifiers,
         )

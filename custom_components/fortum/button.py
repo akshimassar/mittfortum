@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.exceptions import HomeAssistantError
@@ -104,8 +104,9 @@ class FortumFullHistoryResyncButton(FortumEntity, ButtonEntity):
         """Run full history re-sync from earliest available date."""
         started = time.perf_counter()
         pause_all_sync_schedules(self.coordinator.hass)
+        coordinator = cast(Any, self.coordinator)
         try:
-            imported_points = await self.coordinator.async_run_statistics_sync(
+            imported_points = await coordinator.async_run_statistics_sync(
                 force_resync=True,
             )
         except APIError as exc:
@@ -150,8 +151,9 @@ class FortumClearStatisticsButton(FortumEntity, ButtonEntity):
     async def async_press(self) -> None:
         """Clear all imported statistics for Fortum metering points."""
         pause_all_sync_schedules(self.coordinator.hass)
+        coordinator = cast(Any, self.coordinator)
         try:
-            cleared = await self.coordinator.async_clear_statistics()
+            cleared = await coordinator.async_clear_statistics()
         except APIError as exc:
             raise HomeAssistantError(f"Clear statistics failed: {exc}") from exc
         finally:

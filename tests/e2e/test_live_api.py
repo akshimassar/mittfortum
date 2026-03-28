@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from time import perf_counter
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -527,7 +528,7 @@ async def test_live_integration_setup_under_five_seconds(
         del name, eager_start
         return asyncio.create_task(target)
 
-    live_hass.async_create_task = _schedule_task
+    cast(Any, live_hass).async_create_task = _schedule_task
 
     entry = MagicMock()
     entry.entry_id = "e2e_startup"

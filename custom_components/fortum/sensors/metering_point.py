@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.const import EntityCategory
@@ -153,15 +153,15 @@ class FortumCurrentMonthConsumptionSensor(FortumEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         """Return month-to-date consumption from hourly recorder stats."""
-        return self.coordinator.get_current_month_consumption_total(
-            self._metering_point_no
-        )
+        coordinator = cast(Any, self.coordinator)
+        return coordinator.get_current_month_consumption_total(self._metering_point_no)
 
     @property
     def native_unit_of_measurement(self) -> str | None:
         """Return consumption unit from recorder statistic metadata."""
+        coordinator = cast(Any, self.coordinator)
         return (
-            self.coordinator.get_current_month_consumption_unit(self._metering_point_no)
+            coordinator.get_current_month_consumption_unit(self._metering_point_no)
             or self._fallback_unit
         )
 
@@ -198,13 +198,15 @@ class FortumCurrentMonthCostSensor(FortumEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         """Return month-to-date cost from hourly recorder stats."""
-        return self.coordinator.get_current_month_cost_total(self._metering_point_no)
+        coordinator = cast(Any, self.coordinator)
+        return coordinator.get_current_month_cost_total(self._metering_point_no)
 
     @property
     def native_unit_of_measurement(self) -> str | None:
         """Return cost unit from recorder statistic metadata."""
+        coordinator = cast(Any, self.coordinator)
         return (
-            self.coordinator.get_current_month_cost_unit(self._metering_point_no)
+            coordinator.get_current_month_cost_unit(self._metering_point_no)
             or self._fallback_unit
         )
 

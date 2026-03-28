@@ -8,7 +8,7 @@ import logging
 import re
 from datetime import date as date_cls
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, cast
 from zoneinfo import ZoneInfo
 
 from homeassistant.components.recorder.models.statistics import StatisticMeanType
@@ -52,6 +52,17 @@ _LOGGER = logging.getLogger(__name__)
 MAX_FULL_BACKFILL_STEPS = 104
 CLEAR_STATISTICS_TIMEOUT_SECONDS = 60
 REQUEST_RETRY_DELAYS = (5.0, 10.0)
+
+
+class _MutableStatisticRow(TypedDict):
+    """Mutable recorder statistics row before final cast."""
+
+    start: datetime
+    state: float
+    mean: float
+    min: float
+    max: float
+    sum: NotRequired[float]
 
 
 def _fmt_day(value: datetime) -> str:
@@ -637,10 +648,10 @@ class FortumAPIClient:
                 time_series.metering_point_no
             )
 
-            consumption_statistics = []
-            cost_statistics = []
-            price_statistics = []
-            temperature_statistics = []
+            consumption_statistics: list[_MutableStatisticRow] = []
+            cost_statistics: list[_MutableStatisticRow] = []
+            price_statistics: list[_MutableStatisticRow] = []
+            temperature_statistics: list[_MutableStatisticRow] = []
             first_missing_price_at: datetime | None = None
             ordered_points = sorted(time_series.series, key=lambda item: item.at_utc)
             for point in ordered_points:
@@ -734,12 +745,12 @@ class FortumAPIClient:
             if consumption_statistics:
                 consumption_sum = await self._get_hourly_stat_sum_before_hour(
                     consumption_statistic_id,
-                    cast("datetime", consumption_statistics[0]["start"]),
+                    consumption_statistics[0]["start"],
                 )
                 if total_consumption_seed is None:
                     total_consumption_seed = consumption_sum
                 for row in consumption_statistics:
-                    state_value = cast("float", row["state"])
+                    state_value = row["state"]
                     consumption_sum += state_value
                     row["sum"] = consumption_sum
                 total_consumption_final = consumption_sum
@@ -747,10 +758,10 @@ class FortumAPIClient:
             if cost_statistics:
                 cost_sum = await self._get_hourly_stat_sum_before_hour(
                     cost_statistic_id,
-                    cast("datetime", cost_statistics[0]["start"]),
+                    cost_statistics[0]["start"],
                 )
                 for row in cost_statistics:
-                    state_value = cast("float", row["state"])
+                    state_value = row["state"]
                     cost_sum += state_value
                     row["sum"] = cost_sum
 
@@ -821,43 +832,52 @@ class FortumAPIClient:
             def _start_text(start: datetime | float) -> str:
                 return str(start)
 
+            consumption_unit = str(consumption_metadata["unit_of_measurement"] or "")
+            cost_unit = str(cost_metadata["unit_of_measurement"] or "")
+            price_unit = str(price_metadata["unit_of_measurement"] or "")
+            temperature_unit = str(temperature_metadata["unit_of_measurement"] or "")
+
             digest_parts = [
                 time_series.metering_point_no,
                 consumption_metadata["statistic_id"],
-                consumption_metadata["unit_of_measurement"],
+                consumption_unit,
                 *[
                     (
-                        f"c|{_start_text(row['start'])}|{row['state']:.12f}|"
+                        f"c|{_start_text(row['start'])}|"
+                        f"{row['state']:.12f}|"
                         f"{row['mean']:.12f}|{row['min']:.12f}|"
                         f"{row['max']:.12f}|{row.get('sum', 0.0):.12f}"
                     )
                     for row in consumption_statistics
                 ],
                 cost_metadata["statistic_id"],
-                cost_metadata["unit_of_measurement"],
+                cost_unit,
                 *[
                     (
-                        f"k|{_start_text(row['start'])}|{row['state']:.12f}|"
+                        f"k|{_start_text(row['start'])}|"
+                        f"{row['state']:.12f}|"
                         f"{row['mean']:.12f}|{row['min']:.12f}|"
                         f"{row['max']:.12f}|{row.get('sum', 0.0):.12f}"
                     )
                     for row in cost_statistics
                 ],
                 price_metadata["statistic_id"],
-                price_metadata["unit_of_measurement"],
+                price_unit,
                 *[
                     (
-                        f"p|{_start_text(row['start'])}|{row['state']:.12f}|"
+                        f"p|{_start_text(row['start'])}|"
+                        f"{row['state']:.12f}|"
                         f"{row['mean']:.12f}|{row['min']:.12f}|"
                         f"{row['max']:.12f}"
                     )
                     for row in price_statistics
                 ],
                 temperature_metadata["statistic_id"],
-                temperature_metadata["unit_of_measurement"],
+                temperature_unit,
                 *[
                     (
-                        f"t|{_start_text(row['start'])}|{row['state']:.12f}|"
+                        f"t|{_start_text(row['start'])}|"
+                        f"{row['state']:.12f}|"
                         f"{row['mean']:.12f}|{row['min']:.12f}|"
                         f"{row['max']:.12f}"
                     )
@@ -1215,12 +1235,14 @@ class FortumAPIClient:
         def _start_iso(start: datetime | float) -> str:
             return str(start)
 
+        metadata_unit = str(metadata["unit_of_measurement"] or "")
         digest_parts = [
             metadata["statistic_id"],
-            metadata["unit_of_measurement"],
+            metadata_unit,
             *[
                 (
-                    f"{_start_iso(row['start'])}|{row['state']:.12f}|"
+                    f"{_start_iso(row['start'])}|"
+                    f"{row['state']:.12f}|"
                     f"{row['mean']:.12f}|{row['min']:.12f}|{row['max']:.12f}"
                 )
                 for row in rows
