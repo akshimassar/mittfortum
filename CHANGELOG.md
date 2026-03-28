@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [4.2.0]
+
+### Changed
+- Added optional per-metering-point current month consumption and cost sensors, controlled by a dedicated integration option.
+- Added a Norway-only Norgespris consumption limit sensor when the source value is available from Fortum metering-point data.
+- Refactored coordinator/session runtime ownership by introducing `SessionManager` and splitting coordinators into dedicated modules, improving setup/runtime consistency.
+- Refined authentication and coordinator logging to reduce debug noise while preserving useful diagnostics context.
+- Expanded contributor and API reference documentation with architecture notes and sanitized Fortum API examples.
+
 ## [4.1.2]
 
 ### Changed
