@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [4.2.1]
+
+### Changed
+- Fix mypy typing issues and align pre-commit cheks with CI
+
 ## [4.2.0]
 
 ### Changed
