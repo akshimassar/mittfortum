@@ -75,6 +75,7 @@ _LOGGER = logging.getLogger(__name__)
 ensure_function_name_log_prefix()
 
 _DASHBOARD_STRATEGY_FILE = "fortum-energy-strategy.js"
+_DASHBOARD_FRONTEND_URL_PREFIX = "/fortum-energy-static"
 _DASHBOARD_STRATEGY_URL = f"/fortum-energy/{_DASHBOARD_STRATEGY_FILE}"
 _DASHBOARD_URL_PATH = "fortum-energy"
 _DASHBOARD_TITLE = "Fortum"
@@ -88,6 +89,11 @@ _DASHBOARD_CREATE_REGISTERED_KEY = f"{DOMAIN}_dashboard_create_registered"
 def _dashboard_strategy_path() -> Path:
     """Return absolute path to dashboard strategy file."""
     return Path(__file__).parent / "frontend" / _DASHBOARD_STRATEGY_FILE
+
+
+def _dashboard_frontend_path() -> Path:
+    """Return absolute path to dashboard frontend directory."""
+    return Path(__file__).parent / "frontend"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -380,7 +386,7 @@ def _schedule_post_setup_refreshes(
 
 
 async def _async_register_dashboard_strategy_static_path(hass: HomeAssistant) -> None:
-    """Register static URL for the dashboard strategy JS file."""
+    """Register static URLs for dashboard strategy and frontend modules."""
     if hass.data.get(_DASHBOARD_STATIC_REGISTERED_KEY):
         return
 
@@ -401,7 +407,12 @@ async def _async_register_dashboard_strategy_static_path(hass: HomeAssistant) ->
                 _DASHBOARD_STRATEGY_URL,
                 str(strategy_path),
                 cache_headers=False,
-            )
+            ),
+            StaticPathConfig(
+                _DASHBOARD_FRONTEND_URL_PREFIX,
+                str(_dashboard_frontend_path()),
+                cache_headers=False,
+            ),
         ]
     )
     if isawaitable(register_result):
@@ -409,7 +420,9 @@ async def _async_register_dashboard_strategy_static_path(hass: HomeAssistant) ->
 
     hass.data[_DASHBOARD_STATIC_REGISTERED_KEY] = True
     _LOGGER.debug(
-        "registered dashboard strategy static path %s", _DASHBOARD_STRATEGY_URL
+        "registered dashboard strategy static URLs %s and %s",
+        _DASHBOARD_STRATEGY_URL,
+        _DASHBOARD_FRONTEND_URL_PREFIX,
     )
 
 

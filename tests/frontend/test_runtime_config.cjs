@@ -6,10 +6,10 @@ globalThis.HTMLElement = globalThis.HTMLElement || class {};
 
 require(path.resolve(
   __dirname,
-  "../../custom_components/fortum/frontend/fortum-energy-strategy.js"
+  "../../custom_components/fortum/frontend/strategy/runtime-config.js"
 ));
 
-const hooks = globalThis.__fortumEnergyStrategyTestHooks;
+const hooks = globalThis.__fortumEnergyRuntimeConfig;
 
 const toPriceId = (consumptionStatId) => {
   if (typeof consumptionStatId !== "string") {
