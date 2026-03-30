@@ -3270,6 +3270,32 @@ class FortumEnergyFuturePriceCard extends HTMLElement {
     return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
 
+  _getNowForecastValue(points) {
+    if (!Array.isArray(points) || !points.length) {
+      return 0;
+    }
+
+    const nowMs = Date.now();
+    const nowHourStart = new Date(nowMs);
+    nowHourStart.setMinutes(0, 0, 0);
+    const nowBucketStartMs = nowHourStart.getTime();
+
+    const exactPoint = points.find((item) => Number(item?.[0]) === nowBucketStartMs);
+    if (exactPoint && Number.isFinite(Number(exactPoint[1]))) {
+      return Number(exactPoint[1]);
+    }
+
+    const latestPastPoint = [...points]
+      .filter((item) => Number.isFinite(Number(item?.[0])) && Number(item[0]) <= nowMs)
+      .sort((a, b) => Number(b[0]) - Number(a[0]))[0];
+    if (latestPastPoint && Number.isFinite(Number(latestPastPoint[1]))) {
+      return Number(latestPastPoint[1]);
+    }
+
+    const latestPoint = points[points.length - 1];
+    return Number.isFinite(Number(latestPoint?.[1])) ? Number(latestPoint[1]) : 0;
+  }
+
   _formatPriceValue(value) {
     const amount = typeof value === "number" ? value : Number(value || 0);
     const lang = this._hass?.locale?.language || "en";
@@ -3329,8 +3355,7 @@ class FortumEnergyFuturePriceCard extends HTMLElement {
             <th class="num">Min</th>
             <th class="num">Max</th>
             <th class="num">Avg</th>
-            <th class="num">Sum</th>
-            <th class="num">Last</th>
+            <th class="num">Now</th>
           </tr>
         </thead>
         <tbody>
@@ -3342,8 +3367,7 @@ class FortumEnergyFuturePriceCard extends HTMLElement {
               <td class="num">${this._formatPriceValue(row.min)}</td>
               <td class="num">${this._formatPriceValue(row.max)}</td>
               <td class="num">${this._formatPriceValue(row.avg)}</td>
-              <td class="num"></td>
-              <td class="num">${this._formatPriceValue(row.last)}</td>
+              <td class="num">${this._formatPriceValue(row.now ?? row.last)}</td>
             </tr>
           `
             )
@@ -3754,7 +3778,7 @@ class FortumEnergyFuturePriceCard extends HTMLElement {
         avg: pointValues.length
           ? pointValues.reduce((acc, v) => acc + v, 0) / pointValues.length
           : 0,
-        last: pointValues.length ? pointValues[pointValues.length - 1] : 0,
+        now: this._getNowForecastValue(points),
       });
     });
 
