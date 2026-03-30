@@ -40,7 +40,7 @@ class TestFortumDevice:
 
         assert device_info["identifiers"] == {("fortum", "12345")}
         assert device_info["name"] == "Test Device"
-        assert device_info["manufacturer"] == "Fortum"
+        assert device_info["manufacturer"] == "@akshimassar"
 
     def test_device_info_no_name(self, customer_details, metering_point):
         """Test device info with default name."""

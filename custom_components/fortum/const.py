@@ -78,8 +78,8 @@ TOKEN_REFRESH_INTERVAL = timedelta(minutes=5)
 SESSION_REFRESH_INTERVAL = timedelta(hours=3)
 
 # Device information
-MANUFACTURER = "Fortum"
-MODEL = "Fortum"
+MANUFACTURER = "@akshimassar"
+MODEL = "Fortum Integration"
 
 # Sensor configuration
 PRICE_SENSOR_KEY = "price_per_kwh"
