@@ -107,12 +107,21 @@ export class FortumEnergyQuickRangesCard extends HTMLElement {
           flex: 1;
           --ha-button-theme-color: currentColor;
         }
+        ha-button.export {
+          flex: 0 0 auto;
+          min-width: 92px;
+        }
       </style>
       <div class="card">
         <div class="row">
           <ha-button appearance="filled" size="small" data-range="day">${dayLabel}</ha-button>
           <ha-button appearance="filled" size="small" data-range="week">${weekLabel}</ha-button>
           <ha-button appearance="filled" size="small" data-range="month">${monthLabel}</ha-button>
+          ${
+            this._config?.debug === true
+              ? '<ha-button class="export" appearance="outlined" size="small" data-range="export">Export Debug</ha-button>'
+              : ""
+          }
         </div>
       </div>
     `;
@@ -129,6 +138,18 @@ export class FortumEnergyQuickRangesCard extends HTMLElement {
         }
         const range = button.getAttribute("data-range");
         if (range) {
+          if (range === "export") {
+            const collectionKey = this._config?.collection_key || DEFAULT_COLLECTION_KEY;
+            window.dispatchEvent(
+              new CustomEvent("fortum-energy:export-adaptive-snapshot", {
+                detail: {
+                  collectionKey,
+                  download: true,
+                },
+              })
+            );
+            return;
+          }
           this._setDefaultRange(range);
         }
       };

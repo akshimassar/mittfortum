@@ -56,6 +56,7 @@ const buildElectricityViewConfig = (
   mainCards.push({
     type: "custom:fortum-energy-quick-ranges-card",
     collection_key: collectionKey,
+    debug,
     grid_options: { columns: 12 },
   });
 

@@ -29,6 +29,13 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
 
   connectedCallback() {
     this._ensureResizeObserver();
+    if (!this._exportSnapshotHandler) {
+      this._exportSnapshotHandler = (event) => this._handleExportSnapshotRequest(event);
+      window.addEventListener(
+        "fortum-energy:export-adaptive-snapshot",
+        this._exportSnapshotHandler
+      );
+    }
   }
 
   disconnectedCallback() {
@@ -40,6 +47,13 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       this._resizeObserver.disconnect();
       this._resizeObserver = undefined;
     }
+    if (this._exportSnapshotHandler) {
+      window.removeEventListener(
+        "fortum-energy:export-adaptive-snapshot",
+        this._exportSnapshotHandler
+      );
+      this._exportSnapshotHandler = undefined;
+    }
   }
 
   getCardSize() {
@@ -49,6 +63,10 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
   _getCollection() {
     const collectionKey = this._config?.collection_key || DEFAULT_COLLECTION_KEY;
     return this._hass?.connection?.[`_${collectionKey}`];
+  }
+
+  _getCollectionKey() {
+    return this._config?.collection_key || DEFAULT_COLLECTION_KEY;
   }
 
   _getCollectionRangeKey() {
@@ -889,6 +907,46 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       .sort((a, b) => a.start - b.start);
   }
 
+  _serializeMap(map) {
+    return Array.from((map || new Map()).entries())
+      .map(([ts, value]) => [Number(ts), Number(value)])
+      .sort((a, b) => a[0] - b[0]);
+  }
+
+  _downloadSnapshot(snapshot) {
+    const payload = JSON.stringify(snapshot, null, 2);
+    const blob = new Blob([payload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    link.href = url;
+    link.download = `fortum-adaptive-snapshot-${stamp}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  _handleExportSnapshotRequest(event) {
+    if (!this._debugEnabled) {
+      return;
+    }
+    const detail = event?.detail || {};
+    if (detail.collectionKey && detail.collectionKey !== this._getCollectionKey()) {
+      return;
+    }
+    const snapshot =
+      this._lastExportSnapshot ||
+      {
+        generated_at: new Date().toISOString(),
+        error: "No adaptive graph snapshot available yet. Wait for chart data to load.",
+      };
+    console.log("[fortum-energy] adaptive graph snapshot", snapshot);
+    if (detail.download !== false) {
+      this._downloadSnapshot(snapshot);
+    }
+  }
+
   _resolveEnergyUnit(data, candidateIds) {
     const statsMetadata = data?.statsMetadata || {};
     const found = (candidateIds || [])
@@ -1231,10 +1289,7 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         Math.max(fromBattery.get(ts) || 0, 0) -
         Math.max(toGrid.get(ts) || 0, 0) -
         Math.max(toBattery.get(ts) || 0, 0);
-      const untracked = Math.max(
-        0,
-        usedTotal - (deviceTotalsByFlowBucket.get(ts) || 0)
-      );
+      const untracked = usedTotal - (deviceTotalsByFlowBucket.get(ts) || 0);
 
       if (subdividesFlowBuckets) {
         for (let idx = 0; idx < bucketsPerFlow; idx += 1) {
@@ -1608,6 +1663,49 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       this._allSeries = series;
       this._chartOptions = options;
       this._legendRows = [totalRow, ...legendRowsFromSeries];
+      if (this._debugEnabled) {
+        this._lastExportSnapshot = {
+          generated_at: new Date().toISOString(),
+          collection_key: this._getCollectionKey(),
+          range: {
+            start: bounds.start.toISOString(),
+            end: bounds.end.toISOString(),
+          },
+          bucket_ms: bucketMs,
+          period: {
+            device: devicePeriod,
+            flow_and_cost: flowPeriod,
+            price: "hour",
+            temperature: "hour",
+          },
+          ids: {
+            device: deviceIds,
+            flow: flowIds,
+            overlay: overlayIds,
+          },
+          metadata: {
+            energy: energyMeta,
+            units: {
+              energy: this._energyUnit,
+              cost: this._costUnit,
+              price: this._priceUnit,
+              temperature: this._temperatureUnit,
+            },
+          },
+          raw: {
+            device: deviceRaw,
+            flow_and_cost: flowRaw,
+            price: priceRaw,
+            temperature: temperatureRaw,
+          },
+          computed: {
+            total_consumed_by_bucket: this._serializeMap(totalConsumedByBucket),
+            device_totals_by_bucket: this._serializeMap(deviceTotalsByTs),
+            untracked_by_bucket: this._serializeMap(untrackedByBucket),
+          },
+          series,
+        };
+      }
       this._initializeSeriesVisibility(series);
       this._logAdaptiveGraphDebug({
         bounds,
