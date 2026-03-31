@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from inspect import isawaitable, signature
@@ -86,6 +87,26 @@ _DASHBOARD_RESOURCE_REGISTERED_KEY = f"{DOMAIN}_dashboard_resource_registered"
 _DASHBOARD_CREATE_REGISTERED_KEY = f"{DOMAIN}_dashboard_create_registered"
 
 
+def _dashboard_strategy_version() -> str:
+    """Return integration version for strategy resource cache busting."""
+    manifest_path = Path(__file__).parent / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return "dev"
+
+    version = manifest.get("version")
+    if isinstance(version, str) and version.strip():
+        return version.strip()
+    return "dev"
+
+
+_DASHBOARD_STRATEGY_VERSION = _dashboard_strategy_version()
+_DASHBOARD_STRATEGY_RESOURCE_URL = (
+    f"{_DASHBOARD_STRATEGY_URL}?v={_DASHBOARD_STRATEGY_VERSION}"
+)
+
+
 def _dashboard_strategy_path() -> Path:
     """Return absolute path to dashboard strategy file."""
     return Path(__file__).parent / "frontend" / _DASHBOARD_STRATEGY_FILE
@@ -94,6 +115,11 @@ def _dashboard_strategy_path() -> Path:
 def _dashboard_frontend_path() -> Path:
     """Return absolute path to dashboard frontend directory."""
     return Path(__file__).parent / "frontend"
+
+
+def _strip_url_query(url: str) -> str:
+    """Return URL without query parameters."""
+    return url.split("?", 1)[0]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -715,25 +741,47 @@ async def _async_ensure_dashboard_strategy_lovelace_resource(
     if not isinstance(resources, ResourceStorageCollection):
         _LOGGER.info(
             "lovelace resources use YAML mode; add manual resource URL=%s type=module",
-            _DASHBOARD_STRATEGY_URL,
+            _DASHBOARD_STRATEGY_RESOURCE_URL,
         )
         return
 
     await resources.async_get_info()
 
-    if any(
-        item.get(CONF_URL) == _DASHBOARD_STRATEGY_URL
-        for item in resources.async_items()
-    ):
+    existing_item_id: str | None = None
+    for item in resources.async_items():
+        item_url = item.get(CONF_URL)
+        if not isinstance(item_url, str):
+            continue
+        if item_url == _DASHBOARD_STRATEGY_RESOURCE_URL:
+            return
+        if _strip_url_query(item_url) != _DASHBOARD_STRATEGY_URL:
+            continue
+
+        item_id = item.get("id")
+        if isinstance(item_id, str):
+            existing_item_id = item_id
+
+    if existing_item_id is not None:
+        await resources.async_update_item(
+            existing_item_id,
+            {
+                CONF_URL: _DASHBOARD_STRATEGY_RESOURCE_URL,
+                CONF_RESOURCE_TYPE_WS: "module",
+            },
+        )
+        _LOGGER.info(
+            "updated lovelace resource for dashboard strategy to %s",
+            _DASHBOARD_STRATEGY_RESOURCE_URL,
+        )
         return
 
     await resources.async_create_item(
         {
-            CONF_URL: _DASHBOARD_STRATEGY_URL,
+            CONF_URL: _DASHBOARD_STRATEGY_RESOURCE_URL,
             CONF_RESOURCE_TYPE_WS: "module",
         }
     )
     _LOGGER.info(
         "added lovelace resource for dashboard strategy at %s",
-        _DASHBOARD_STRATEGY_URL,
+        _DASHBOARD_STRATEGY_RESOURCE_URL,
     )
