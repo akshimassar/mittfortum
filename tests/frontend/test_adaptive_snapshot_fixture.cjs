@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
-const SNAPSHOT_FILE = "fortum-adaptive-snapshot-2026-03-31T19-45-42-855Z.json";
+const SNAPSHOT_FILE = "tests/frontend/fixtures/test_adaptive_snapshot_missing_total_stats.json";
 
 let bucketMath;
 
@@ -23,7 +23,7 @@ test.before(async () => {
 });
 
 test("snapshot fixture keeps missing-total buckets zeroed", () => {
-  const snapshotPath = path.resolve(__dirname, `../../${SNAPSHOT_FILE}`);
+  const snapshotPath = path.resolve(__dirname, "../../", SNAPSHOT_FILE);
   const payload = JSON.parse(fs.readFileSync(snapshotPath, "utf8"));
 
   assert.equal(payload.bucket_ms, 3 * 60 * 60 * 1000);
