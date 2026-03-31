@@ -88,6 +88,15 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
           cursor: text;
           white-space: pre-wrap;
         }
+        .warning {
+          margin-top: 10px;
+          color: var(--warning-color);
+          user-select: text;
+          -webkit-user-select: text;
+          cursor: text;
+          white-space: pre-wrap;
+          font-size: var(--ha-font-size-s);
+        }
         .consumption-stats {
           margin-top: 12px;
           border-top: 1px solid var(--divider-color);
@@ -148,6 +157,7 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         <div class="content ${this._config?.title ? "has-header" : ""}">
           <ha-chart-base id="chart"></ha-chart-base>
           <div id="empty" class="empty" style="display:none;">No data</div>
+          <div id="warning" class="warning" style="display:none;"></div>
           <div id="consumption-stats" class="consumption-stats"></div>
         </div>
       </ha-card>
@@ -774,6 +784,7 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
   }
 
   _showCardError(message) {
+    this._setCardWarning(null);
     const emptyEl = this.shadowRoot?.querySelector("#empty");
     if (emptyEl) {
       emptyEl.textContent = message;
@@ -794,6 +805,16 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       this._chart.requestUpdate?.();
     }
     this._renderCustomLegendTable([], this._hiddenSeriesIds || new Set());
+  }
+
+  _setCardWarning(message) {
+    const warningEl = this.shadowRoot?.querySelector("#warning");
+    if (!warningEl) {
+      return;
+    }
+    const text = typeof message === "string" ? message.trim() : "";
+    warningEl.textContent = text;
+    warningEl.style.display = text ? "block" : "none";
   }
 
   _resolveEnergyUnit(data, candidateIds) {
@@ -855,10 +876,25 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       }
 
       const metrics = this._resolvedMetrics || {};
+      const token = (this._token || 0) + 1;
+      this._token = token;
       const itemizations = Array.isArray(metrics.itemizations) ? metrics.itemizations : [];
       const deviceIds = itemizations
         .map((device) => device?.stat)
         .filter((id) => typeof id === "string" && id.length);
+
+      const deviceMeta = await this._fetchStatsMetadata(deviceIds);
+      if (this._token !== token) {
+        return;
+      }
+      const missingDeviceIds = deviceIds.filter((id) => !deviceMeta?.[id]);
+      if (missingDeviceIds.length) {
+        this._setCardWarning(
+          `Missing itemization statistics: ${missingDeviceIds.join(", ")}.`
+        );
+      } else {
+        this._setCardWarning(null);
+      }
 
       const consumptionIds = Array.isArray(metrics.consumption)
         ? metrics.consumption.filter((id) => typeof id === "string" && id.length)
@@ -909,9 +945,6 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         ...overlayIds.importCost,
       ])
     );
-
-    const token = (this._token || 0) + 1;
-    this._token = token;
 
     let deviceRaw = await this._fetchStats(deviceIds, bounds.start, bounds.end, devicePeriod);
     if (this._token !== token) {
