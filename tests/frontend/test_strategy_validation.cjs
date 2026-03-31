@@ -15,12 +15,21 @@ test.before(async () => {
 
 test("validates single config with metering_point_number", () => {
   const cfg = validation.validateSingleStrategyConfig({
+    debug: true,
     fortum: { metering_point_number: " 6094111 " },
     itemization: [{ stat: "sensor.sauna", name: "Sauna" }],
   });
 
+  assert.equal(cfg.debug, true);
   assert.equal(cfg.fortum.metering_point_number, "6094111");
   assert.deepEqual(cfg.itemization, [{ stat: "sensor.sauna", name: "Sauna" }]);
+});
+
+test("rejects non-boolean debug value", () => {
+  assert.throws(
+    () => validation.validateSingleStrategyConfig({ debug: "yes" }),
+    /strategy\.debug must be a boolean/i
+  );
 });
 
 test("validates multipoint config with optional name", () => {

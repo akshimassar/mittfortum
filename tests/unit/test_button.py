@@ -221,7 +221,6 @@ def test_build_multipoint_dashboard_strategy_config_defaults_name_to_address() -
     assert config == {
         "strategy": {
             "type": "custom:fortum-energy-multipoint",
-            "version": 1,
             "metering_points": [
                 {
                     "number": "6094111",
@@ -316,7 +315,6 @@ async def test_force_recreate_multipoint_dashboard_button_recreates_dashboard() 
         {
             "strategy": {
                 "type": "custom:fortum-energy-multipoint",
-                "version": 1,
                 "metering_points": [
                     {
                         "number": "6094111",

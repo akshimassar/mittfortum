@@ -68,7 +68,6 @@ def _build_multipoint_dashboard_strategy_config(
     return {
         "strategy": {
             "type": "custom:fortum-energy-multipoint",
-            "version": 1,
             "metering_points": strategy_points,
         }
     }

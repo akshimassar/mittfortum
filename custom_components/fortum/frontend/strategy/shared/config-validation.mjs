@@ -60,6 +60,12 @@ const validateSingleStrategyConfigCore = (config) => {
   }
 
   const validated = { ...config };
+  if (Object.prototype.hasOwnProperty.call(validated, "debug")) {
+    if (typeof validated.debug !== "boolean") {
+      throw new Error("strategy.debug must be a boolean when provided.");
+    }
+  }
+
   if (validated.fortum !== undefined) {
     if (!isObject(validated.fortum)) {
       throw new Error("strategy.fortum must be an object when provided.");
