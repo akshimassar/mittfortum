@@ -1,4 +1,5 @@
 import { FortumEnergySingleDashboardStrategy } from "/fortum-energy-static/strategy/strategies/single-strategy.js";
+import { validateMultipointStrategyConfig } from "/fortum-energy-static/strategy/shared/config-validation.mjs";
 
 const normalizeMeteringPointNumber = (value) => {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -13,32 +14,27 @@ const normalizeMeteringPointNumber = (value) => {
 
 export class FortumEnergyMultipointDashboardStrategy extends FortumEnergySingleDashboardStrategy {
   static async generate(config, hass) {
-    const meteringPoints = Array.isArray(config?.metering_points)
-      ? config.metering_points
-      : [];
-    const firstPoint = meteringPoints.find((point) => point && typeof point === "object");
+    const validatedConfig = validateMultipointStrategyConfig(config || {});
+    const meteringPoints = validatedConfig.metering_points;
+    const firstPoint = meteringPoints[0];
 
     if (!firstPoint) {
-      return super.generate(config, hass);
+      return super.generate(validatedConfig, hass);
     }
 
     const normalizedNumber = normalizeMeteringPointNumber(firstPoint.number);
     const singleConfig = {
-      ...config,
+      ...validatedConfig,
       fortum: {
-        ...(config?.fortum || {}),
+        ...(validatedConfig?.fortum || {}),
       },
     };
 
     if (normalizedNumber && !singleConfig.fortum.metering_point_number) {
       singleConfig.fortum.metering_point_number = normalizedNumber;
     }
-    if (!("itemization" in singleConfig) && Array.isArray(firstPoint.itemization)) {
-      singleConfig.itemization = firstPoint.itemization;
-    }
-    if (typeof firstPoint.name === "string" && firstPoint.name.trim()) {
-      singleConfig.electricity_title = firstPoint.name.trim();
-    }
+    singleConfig.itemization = firstPoint.itemization;
+    singleConfig.electricity_title = firstPoint.name || firstPoint.address || firstPoint.number;
 
     return super.generate(singleConfig, hass);
   }

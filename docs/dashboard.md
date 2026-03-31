@@ -18,6 +18,14 @@ It reads data from the Home Assistant Energy collection and Recorder statistics.
 - `debug` (optional): enables dashboard debug output in the browser console when `true` (adaptive graph + tomorrow-price card).
 - `fortum.metering_point_number` (optional): explicit Fortum metering point number for single strategy.
 - `itemization` (optional): list of device itemizations. When present, including an empty list, it fully replaces Energy Dashboard itemization.
+- `metering_points` (multipoint): non-empty list of points; each point requires `number` and `itemization`, with optional `name` and optional `address`.
+
+Multipoint point fields:
+
+- `number` (required): metering point number.
+- `itemization` (required): itemization list for this point; empty list is allowed.
+- `name` (optional): tab title override.
+- `address` (optional): used as tab title when `name` is not provided.
 
 `itemization` item fields:
 

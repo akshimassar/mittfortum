@@ -1,6 +1,7 @@
 import { DEFAULT_COLLECTION_KEY } from "/fortum-energy-static/strategy/shared/constants.js";
 import { fetchEnergyPrefs } from "/fortum-energy-static/strategy/shared/energy-prefs.js";
 import { localize } from "/fortum-energy-static/strategy/shared/formatters.js";
+import { validateSingleStrategyConfig } from "/fortum-energy-static/strategy/shared/config-validation.mjs";
 import { resolveSingleStrategyMetrics } from "/fortum-energy-static/strategy/shared/single-resolution.mjs";
 
 const buildSettingsView = (hass) => ({
@@ -96,13 +97,16 @@ const buildElectricityViewConfig = (
 export class FortumEnergySingleDashboardStrategy extends HTMLElement {
   static async generate(config, hass) {
     try {
+      const validatedConfig = validateSingleStrategyConfig(config || {});
       const collectionKey =
-        config.collection_key || config.collectionKey || DEFAULT_COLLECTION_KEY;
-      const debug = config.debug === true;
+        validatedConfig.collection_key ||
+        validatedConfig.collectionKey ||
+        DEFAULT_COLLECTION_KEY;
+      const debug = validatedConfig.debug === true;
       const prefs = await fetchEnergyPrefs(hass);
       const hasYamlMeteringPoint =
-        typeof config?.fortum?.metering_point_number === "string" &&
-        config.fortum.metering_point_number.trim().length > 0;
+        typeof validatedConfig?.fortum?.metering_point_number === "string" &&
+        validatedConfig.fortum.metering_point_number.trim().length > 0;
 
       let statisticIds = [];
       try {
@@ -114,7 +118,7 @@ export class FortumEnergySingleDashboardStrategy extends HTMLElement {
       }
 
       const { metrics: resolvedMetrics } = resolveSingleStrategyMetrics({
-        config,
+        config: validatedConfig,
         prefs,
         statisticIds,
       });
@@ -126,7 +130,7 @@ export class FortumEnergySingleDashboardStrategy extends HTMLElement {
             hass,
             debug,
             resolvedMetrics,
-            config.electricity_title
+            validatedConfig.electricity_title
           ),
           buildSettingsView(hass),
         ],
