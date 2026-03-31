@@ -16,7 +16,7 @@ It reads data from the Home Assistant Energy collection and Recorder statistics.
 
 - `collection_key` (optional): Energy collection key. Default: `energy_fortum_energy_dashboard`.
 - `debug` (optional): enables dashboard debug output in the browser console when `true` (adaptive graph + tomorrow-price card).
-- `fortum.metering_point_no` (optional): explicit Fortum metering point number for single strategy.
+- `fortum.metering_point_number` (optional): explicit Fortum metering point number for single strategy.
 - `itemization` (optional): list of device itemizations. When present, including an empty list, it fully replaces Energy Dashboard itemization.
 
 `itemization` item fields:
@@ -31,7 +31,7 @@ title: Fortum
 strategy:
   type: custom:fortum-energy
   fortum:
-    metering_point_no: "6094111"
+    metering_point_number: "6094111"
   itemization: []
 ```
 
@@ -40,7 +40,7 @@ strategy:
 Single strategy resolves two domains independently and only once (dashboard reload required to re-resolve):
 
 1. Fortum source resolution:
-   - `strategy.fortum.metering_point_no` when provided.
+   - `strategy.fortum.metering_point_number` when provided.
    - otherwise auto-discovery from Recorder statistics (`fortum:hourly_consumption_*`).
    - if auto-discovery finds multiple Fortum consumption sources, strategy returns an error (single strategy requires exactly one source).
 2. Itemization resolution:

@@ -224,12 +224,12 @@ def test_build_multipoint_dashboard_strategy_config_defaults_name_to_address() -
             "version": 1,
             "metering_points": [
                 {
-                    "no": "6094111",
+                    "number": "6094111",
                     "name": "6094111",
                     "itemization": [],
                 },
                 {
-                    "no": "7000222",
+                    "number": "7000222",
                     "name": "Street 2, City",
                     "itemization": [],
                 },
@@ -263,9 +263,8 @@ def test_build_single_dashboard_strategy_config_builds_expected_payload() -> Non
         "strategy": {
             "type": "custom:fortum-energy-single",
             "fortum": {
-                "metering_point_no": "6094111",
+                "metering_point_number": "6094111",
             },
-            "itemization": [],
         }
     }
 
@@ -320,7 +319,7 @@ async def test_force_recreate_multipoint_dashboard_button_recreates_dashboard() 
                 "version": 1,
                 "metering_points": [
                     {
-                        "no": "6094111",
+                        "number": "6094111",
                         "name": "Street 1, City",
                         "itemization": [],
                     }
@@ -405,9 +404,8 @@ async def test_force_recreate_single_dashboard_button_recreates_dashboard() -> N
             "strategy": {
                 "type": "custom:fortum-energy-single",
                 "fortum": {
-                    "metering_point_no": "6094111",
+                    "metering_point_number": "6094111",
                 },
-                "itemization": [],
             }
         },
     )

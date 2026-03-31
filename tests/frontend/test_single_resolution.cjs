@@ -16,7 +16,7 @@ test.before(async () => {
 test("uses YAML metering point and explicit empty itemization", () => {
   const result = hooks.resolveSingleStrategyMetrics({
     config: {
-      fortum: { metering_point_no: "MP-12/34" },
+      fortum: { metering_point_number: "MP-12/34" },
       itemization: [],
     },
     prefs: {

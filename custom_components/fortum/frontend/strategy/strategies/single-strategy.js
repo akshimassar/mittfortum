@@ -18,10 +18,14 @@ const buildElectricityViewConfig = (
   collectionKey,
   hass,
   debug = false,
-  resolvedMetrics
+  resolvedMetrics,
+  viewTitle
 ) => {
   const view = {
-    title: localize(hass, "ui.panel.energy.title.electricity", "Electricity"),
+    title:
+      typeof viewTitle === "string" && viewTitle.trim()
+        ? viewTitle.trim()
+        : localize(hass, "ui.panel.energy.title.electricity", "Electricity"),
     path: "electricity",
     type: "sections",
     sections: [],
@@ -97,8 +101,8 @@ export class FortumEnergySingleDashboardStrategy extends HTMLElement {
       const debug = config.debug === true;
       const prefs = await fetchEnergyPrefs(hass);
       const hasYamlMeteringPoint =
-        typeof config?.fortum?.metering_point_no === "string" &&
-        config.fortum.metering_point_no.trim().length > 0;
+        typeof config?.fortum?.metering_point_number === "string" &&
+        config.fortum.metering_point_number.trim().length > 0;
 
       let statisticIds = [];
       try {
@@ -117,7 +121,13 @@ export class FortumEnergySingleDashboardStrategy extends HTMLElement {
 
       return {
         views: [
-          buildElectricityViewConfig(collectionKey, hass, debug, resolvedMetrics),
+          buildElectricityViewConfig(
+            collectionKey,
+            hass,
+            debug,
+            resolvedMetrics,
+            config.electricity_title
+          ),
           buildSettingsView(hass),
         ],
       };

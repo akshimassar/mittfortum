@@ -36,6 +36,8 @@ if TYPE_CHECKING:
     from .device import FortumDevice
 
 _LOGGER = logging.getLogger(__name__)
+_METERING_POINT_NUMBER_KEY = "number"
+_METERING_POINT_NAME_KEY = "name"
 
 
 def _build_multipoint_dashboard_strategy_config(
@@ -56,13 +58,13 @@ def _build_multipoint_dashboard_strategy_config(
         )
         strategy_points.append(
             {
-                "no": metering_point_no,
-                "name": name,
+                _METERING_POINT_NUMBER_KEY: metering_point_no,
+                _METERING_POINT_NAME_KEY: name,
                 "itemization": [],
             }
         )
 
-    strategy_points.sort(key=lambda item: item["no"])
+    strategy_points.sort(key=lambda item: item[_METERING_POINT_NUMBER_KEY])
     return {
         "strategy": {
             "type": "custom:fortum-energy-multipoint",
@@ -96,9 +98,8 @@ def _build_single_dashboard_strategy_config(
         "strategy": {
             "type": "custom:fortum-energy-single",
             "fortum": {
-                "metering_point_no": point_numbers[0],
+                "metering_point_number": point_numbers[0],
             },
-            "itemization": [],
         }
     }
 
@@ -353,5 +354,5 @@ class FortumForceRecreateSingleDashboardButton(FortumEntity, ButtonEntity):
 
         _LOGGER.debug(
             "force recreated single dashboard for metering point %s",
-            strategy_config["strategy"]["fortum"]["metering_point_no"],
+            strategy_config["strategy"]["fortum"]["metering_point_number"],
         )

@@ -24,7 +24,7 @@ const sanitizeMeteringPointSuffix = (meteringPointNo) => {
     .replace(/[^0-9a-z_]/g, "_")
     .replace(/^_+|_+$/g, "");
   if (!suffix) {
-    throw new Error("Invalid fortum.metering_point_no value.");
+    throw new Error("Invalid fortum.metering_point_number value.");
   }
   return suffix;
 };
@@ -72,8 +72,8 @@ const discoverFortumForecastIds = (statisticIds) =>
 export const resolveSingleStrategyMetrics = ({ config, prefs, statisticIds }) => {
   const fortumConfig = config?.fortum;
   const yamlMeteringPointNo =
-    typeof fortumConfig?.metering_point_no === "string"
-      ? fortumConfig.metering_point_no.trim()
+    typeof fortumConfig?.metering_point_number === "string"
+      ? fortumConfig.metering_point_number.trim()
       : "";
 
   let source = "auto";
@@ -90,13 +90,13 @@ export const resolveSingleStrategyMetrics = ({ config, prefs, statisticIds }) =>
     const autoConsumptionIds = discoverFortumConsumptionIds(statisticIds);
     if (!autoConsumptionIds.length) {
       throw new Error(
-        "No Fortum metering point statistics found. Set strategy.fortum.metering_point_no."
+        "No Fortum metering point statistics found. Set strategy.fortum.metering_point_number."
       );
     }
     if (autoConsumptionIds.length > 1) {
       throw new Error(
         `Single strategy found multiple Fortum metering points: ${autoConsumptionIds.join(", "
-        )}. Set strategy.fortum.metering_point_no.`
+        )}. Set strategy.fortum.metering_point_number.`
       );
     }
     baseIds = deriveFortumRelatedStatisticIds(autoConsumptionIds[0]);
