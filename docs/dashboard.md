@@ -16,12 +16,13 @@ It reads data from the Home Assistant Energy collection and Recorder statistics.
 
 - `collection_key` (optional): Energy collection key. Default: `energy_fortum_energy_dashboard`.
 - `debug` (optional): enables dashboard debug output in the browser console when `true` (adaptive graph + tomorrow-price card).
-- `energy_sources` (optional): flat list of grid import mappings used as primary source for import energy/cost.
+- `fortum.metering_point_no` (optional): explicit Fortum metering point number for single strategy.
+- `itemization` (optional): list of device itemizations. When present, including an empty list, it fully replaces Energy Dashboard itemization.
 
-`energy_sources` item fields:
+`itemization` item fields:
 
-- `stat_energy_from` (required): statistic/entity id for grid import energy.
-- `stat_cost` (optional): statistic/entity id for import cost.
+- `stat_consumption` (required): statistic id for a device/itemized consumption source.
+- `name` (optional): display name for the itemization row/series.
 
 Minimal example:
 
@@ -29,19 +30,24 @@ Minimal example:
 title: Fortum
 strategy:
   type: custom:fortum-energy
-  energy_sources:
-    - stat_energy_from: sensor.grid_import_energy
-      stat_cost: sensor.grid_import_cost
+  fortum:
+    metering_point_no: "6094111"
+  itemization: []
 ```
 
 ## Source Priority
 
-For adaptive graph and custom legend import calculations:
+Single strategy resolves two domains independently and only once (dashboard reload required to re-resolve):
 
-1. If `strategy.energy_sources` is present and non-empty, it is used first.
-2. Otherwise, the dashboard uses Energy preferences (`energy/get_prefs`).
+1. Fortum source resolution:
+   - `strategy.fortum.metering_point_no` when provided.
+   - otherwise auto-discovery from Recorder statistics (`fortum:hourly_consumption_*`).
+   - if auto-discovery finds multiple Fortum consumption sources, strategy returns an error (single strategy requires exactly one source).
+2. Itemization resolution:
+   - `strategy.itemization` when provided (including empty list).
+   - otherwise `energy/get_prefs` device itemization (`device_consumption`).
 
-Export/compensation, solar, and battery data still come from Energy preferences.
+Single strategy uses only Fortum grid-import derived statistics (`consumption`, `cost`, `price`, `temperature`) and does not use solar/battery/export flows.
 
 ## 15-Minute Scale Behavior
 
@@ -55,11 +61,11 @@ Adaptive graph resolution is chosen by visible range and chart width.
 
 ## Tomorrow Price Graph Data Source
 
-- The tomorrow-price card reads only area-scoped forecast statistics with id format `fortum:price_forecast_<area>`.
-- Area forecast ids are discovered from Recorder statistic id listing (`recorder/list_statistic_ids`).
+- The tomorrow-price card reads only Fortum area-scoped forecast statistics with id format `fortum:price_forecast_<area>`.
+- Forecast ids are resolved by strategy from Recorder statistic id listing (`recorder/list_statistic_ids`) and passed to the card explicitly.
 - Legacy non-area forecast statistic id (`fortum:price_forecast`) is intentionally excluded.
 - Multiple detected area forecast series are rendered on a single card.
-- If no area-scoped forecast statistics are available, the card shows no forecast graph.
+- If no Fortum forecast statistics are resolved, the card shows an in-card error.
 
 ## Tomorrow Price Graph Debugging
 

@@ -1,26 +1,7 @@
 import { DEFAULT_COLLECTION_KEY } from "/fortum-energy-static/strategy/shared/constants.js";
 import { fetchEnergyPrefs } from "/fortum-energy-static/strategy/shared/energy-prefs.js";
 import { localize } from "/fortum-energy-static/strategy/shared/formatters.js";
-import { normalizeEnergySourceOverrides } from "/fortum-energy-static/strategy/runtime-config.mjs";
-
-const hasAnyEnergyPrefs = (prefs) =>
-  prefs &&
-  (prefs.device_consumption.length > 0 || prefs.energy_sources.length > 0);
-
-const hasAnyStrategyOverrides = (energySources) =>
-  Array.isArray(energySources) && energySources.length > 0;
-
-const buildSetupView = () => ({
-  title: "Setup",
-  path: "setup",
-  cards: [
-    {
-      type: "markdown",
-      content:
-        "No Energy preferences found yet. Open **Settings -> Dashboards -> Energy** and complete setup first.",
-    },
-  ],
-});
+import { resolveSingleStrategyMetrics } from "/fortum-energy-static/strategy/shared/single-resolution.mjs";
 
 const buildSettingsView = (hass) => ({
   title: localize(hass, "ui.panel.config.energy.caption", "Settings"),
@@ -34,11 +15,10 @@ const buildSettingsView = (hass) => ({
 });
 
 const buildElectricityViewConfig = (
-  prefs,
   collectionKey,
   hass,
   debug = false,
-  energySources = []
+  resolvedMetrics
 ) => {
   const view = {
     title: localize(hass, "ui.panel.energy.title.electricity", "Electricity"),
@@ -83,7 +63,7 @@ const buildElectricityViewConfig = (
     type: "custom:fortum-energy-devices-adaptive-graph-card",
     collection_key: collectionKey,
     debug,
-    energy_sources: energySources,
+    resolved_metrics: resolvedMetrics,
     grid_options: { columns: 36 },
   });
 
@@ -92,7 +72,7 @@ const buildElectricityViewConfig = (
     type: "custom:fortum-energy-future-price-card",
     collection_key: collectionKey,
     debug,
-    energy_sources: energySources,
+    resolved_metrics: resolvedMetrics,
     grid_options: { columns: 36 },
   });
 
@@ -115,16 +95,29 @@ export class FortumEnergySingleDashboardStrategy extends HTMLElement {
       const collectionKey =
         config.collection_key || config.collectionKey || DEFAULT_COLLECTION_KEY;
       const debug = config.debug === true;
-      const energySources = normalizeEnergySourceOverrides(config.energy_sources);
       const prefs = await fetchEnergyPrefs(hass);
+      const hasYamlMeteringPoint =
+        typeof config?.fortum?.metering_point_no === "string" &&
+        config.fortum.metering_point_no.trim().length > 0;
 
-      if (!hasAnyEnergyPrefs(prefs) && !hasAnyStrategyOverrides(energySources)) {
-        return { views: [buildSetupView(), buildSettingsView(hass)] };
+      let statisticIds = [];
+      try {
+        statisticIds = await hass.callWS({ type: "recorder/list_statistic_ids" });
+      } catch (err) {
+        if (!hasYamlMeteringPoint) {
+          throw err;
+        }
       }
+
+      const { metrics: resolvedMetrics } = resolveSingleStrategyMetrics({
+        config,
+        prefs,
+        statisticIds,
+      });
 
       return {
         views: [
-          buildElectricityViewConfig(prefs, collectionKey, hass, debug, energySources),
+          buildElectricityViewConfig(collectionKey, hass, debug, resolvedMetrics),
           buildSettingsView(hass),
         ],
       };

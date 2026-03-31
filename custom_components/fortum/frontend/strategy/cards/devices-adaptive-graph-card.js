@@ -1,12 +1,10 @@
 import { DEFAULT_COLLECTION_KEY } from "/fortum-energy-static/strategy/shared/constants.js";
-import { deriveEnergyRuntimeConfig } from "/fortum-energy-static/strategy/runtime-config.mjs";
 import { computeAxisFractionDigits } from "/fortum-energy-static/strategy/shared/formatters.js";
 
 export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
   setConfig(config) {
     this._config = config || {};
-    this._energySourceOverridesInput = this._config.energy_sources;
-    this._strictEnergySourceOverrides = Array.isArray(this._energySourceOverridesInput);
+    this._resolvedMetrics = this._config.resolved_metrics || {};
     this._debugEnabled = this._config.debug === true;
     if (!this._debugEnabled) {
       this._lastAdaptiveDebugSignature = undefined;
@@ -657,7 +655,6 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     flowAndCostIds,
     flowIds,
     overlayIds,
-    runtimeConfig,
     deviceRaw,
     flowRaw,
     priceRaw,
@@ -687,12 +684,6 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         flowAndCost: flowPeriod,
         price: "hour",
         temperature: "hour",
-      },
-      runtimeConfig: {
-        source: runtimeConfig?.source || "prefs",
-        strictOverride: !!runtimeConfig?.strictOverride,
-        overridesCount: runtimeConfig?.overridesCount || 0,
-        issues: runtimeConfig?.issues || [],
       },
       ids: {
         deviceIds: deviceIds || [],
@@ -858,15 +849,45 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     try {
       const data = this._energyData || this._collection?.state;
       const bounds = this._getBounds(data);
-      if (!data || !bounds || !data.prefs) {
+      if (!data || !bounds) {
         this._showCardError("Energy data is unavailable.");
         return;
       }
 
-      const devicePrefs = data.prefs.device_consumption || [];
-      const deviceIds = devicePrefs
+      const metrics = this._resolvedMetrics || {};
+      const itemizations = Array.isArray(metrics.itemizations) ? metrics.itemizations : [];
+      const deviceIds = itemizations
         .map((device) => device?.stat_consumption)
         .filter((id) => typeof id === "string" && id.length);
+
+      const consumptionIds = Array.isArray(metrics.consumption)
+        ? metrics.consumption.filter((id) => typeof id === "string" && id.length)
+        : [];
+      if (!consumptionIds.length) {
+        this._showCardError("No Fortum consumption source configured for single strategy.");
+        return;
+      }
+
+      const overlayIds = {
+        importCost: Array.isArray(metrics.cost)
+          ? metrics.cost.filter((id) => typeof id === "string" && id.length)
+          : [],
+        exportCompensation: [],
+        price: Array.isArray(metrics.price)
+          ? metrics.price.filter((id) => typeof id === "string" && id.length)
+          : [],
+        temperature: Array.isArray(metrics.temperature)
+          ? metrics.temperature.filter((id) => typeof id === "string" && id.length)
+          : [],
+      };
+
+      const flowIds = {
+        fromGrid: consumptionIds,
+        toGrid: [],
+        solar: [],
+        fromBattery: [],
+        toBattery: [],
+      };
 
     const widthPx = this._chart.clientWidth || this.clientWidth || 0;
     let bucketMs = this._pickBucketMs(bounds.start, bounds.end, widthPx, 15 * 60 * 1000);
@@ -874,14 +895,6 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     const flowPeriod = "hour";
     const flowBucketMs = 60 * 60 * 1000;
 
-    const runtimeConfig = deriveEnergyRuntimeConfig({
-      prefs: data.prefs,
-      info: data.info,
-      overrides: this._energySourceOverridesInput,
-      strictOverride: this._strictEnergySourceOverrides,
-    });
-    const flowIds = runtimeConfig.flowIds;
-    const overlayIds = runtimeConfig.overlayIds;
     this._energyUnit = this._resolveEnergyUnit(data, [
       ...deviceIds,
       ...flowIds.fromGrid,
@@ -893,12 +906,7 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     const flowAndCostIds = Array.from(
       new Set([
         ...flowIds.fromGrid,
-        ...flowIds.toGrid,
-        ...flowIds.solar,
-        ...flowIds.fromBattery,
-        ...flowIds.toBattery,
         ...overlayIds.importCost,
-        ...overlayIds.exportCompensation,
       ])
     );
 
@@ -1005,7 +1013,7 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     }
 
     const deviceTotalsByTs = new Map();
-    const series = devicePrefs.map((device, index) => {
+    const series = itemizations.map((device, index) => {
       const id = device.stat_consumption;
       const bucketed = this._bucketSeries(normalized[id] || [], bucketMs);
       this._mergeInto(deviceTotalsByTs, bucketed);
@@ -1468,7 +1476,6 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         flowAndCostIds,
         flowIds,
         overlayIds,
-        runtimeConfig,
         deviceRaw,
         flowRaw,
         priceRaw,
