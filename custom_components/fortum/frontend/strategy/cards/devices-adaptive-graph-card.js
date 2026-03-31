@@ -857,7 +857,7 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       const metrics = this._resolvedMetrics || {};
       const itemizations = Array.isArray(metrics.itemizations) ? metrics.itemizations : [];
       const deviceIds = itemizations
-        .map((device) => device?.stat_consumption)
+        .map((device) => device?.stat)
         .filter((id) => typeof id === "string" && id.length);
 
       const consumptionIds = Array.isArray(metrics.consumption)
@@ -1014,7 +1014,7 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
 
     const deviceTotalsByTs = new Map();
     const series = itemizations.map((device, index) => {
-      const id = device.stat_consumption;
+      const id = device.stat;
       const bucketed = this._bucketSeries(normalized[id] || [], bucketMs);
       this._mergeInto(deviceTotalsByTs, bucketed);
       const color = this._getGraphColorByIndex(index);

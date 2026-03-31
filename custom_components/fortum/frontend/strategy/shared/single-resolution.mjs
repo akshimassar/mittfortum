@@ -50,14 +50,32 @@ export const normalizeItemization = (raw) =>
       if (!entry || typeof entry !== "object") {
         return null;
       }
-      const statConsumption =
-        typeof entry.stat_consumption === "string" ? entry.stat_consumption.trim() : "";
-      if (!statConsumption) {
+      const stat = typeof entry.stat === "string" ? entry.stat.trim() : "";
+      if (!stat) {
         return null;
       }
       const name = typeof entry.name === "string" ? entry.name.trim() : "";
       return {
-        stat_consumption: statConsumption,
+        stat,
+        ...(name ? { name } : {}),
+      };
+    })
+    .filter(Boolean);
+
+const normalizePrefsItemization = (raw) =>
+  (Array.isArray(raw) ? raw : [])
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      const stat =
+        typeof entry.stat_consumption === "string" ? entry.stat_consumption.trim() : "";
+      if (!stat) {
+        return null;
+      }
+      const name = typeof entry.name === "string" ? entry.name.trim() : "";
+      return {
+        stat,
         ...(name ? { name } : {}),
       };
     })
@@ -109,7 +127,7 @@ export const resolveSingleStrategyMetrics = ({ config, prefs, statisticIds }) =>
     }
     itemizations = normalizeItemization(config.itemization);
   } else {
-    itemizations = normalizeItemization(prefs?.device_consumption);
+    itemizations = normalizePrefsItemization(prefs?.device_consumption);
   }
 
   return {

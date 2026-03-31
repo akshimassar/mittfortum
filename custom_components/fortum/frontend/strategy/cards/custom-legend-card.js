@@ -348,8 +348,8 @@ export class FortumEnergyCustomLegendCard extends HTMLElement {
     const totalCost = importCost - exportCompensation;
 
     const devices = prefs.device_consumption.map((device) => ({
-      name: device.name || device.stat_consumption,
-      consumption: this._sumStatistic(stats, device.stat_consumption),
+      name: device.name || device.stat,
+      consumption: this._sumStatistic(stats, device.stat),
     }));
 
     const trackedConsumption = devices.reduce((sum, item) => sum + item.consumption, 0);

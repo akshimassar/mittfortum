@@ -16,11 +16,11 @@ test.before(async () => {
 test("validates single config with metering_point_number", () => {
   const cfg = validation.validateSingleStrategyConfig({
     fortum: { metering_point_number: " 6094111 " },
-    itemization: [{ stat_consumption: "sensor.sauna", name: "Sauna" }],
+    itemization: [{ stat: "sensor.sauna", name: "Sauna" }],
   });
 
   assert.equal(cfg.fortum.metering_point_number, "6094111");
-  assert.deepEqual(cfg.itemization, [{ stat_consumption: "sensor.sauna", name: "Sauna" }]);
+  assert.deepEqual(cfg.itemization, [{ stat: "sensor.sauna", name: "Sauna" }]);
 });
 
 test("validates multipoint config with optional name", () => {
@@ -50,5 +50,15 @@ test("rejects multipoint config without itemization", () => {
         metering_points: [{ number: "6094111" }],
       }),
     /itemization must be a list/i
+  );
+});
+
+test("rejects legacy stat_consumption key in strategy itemization", () => {
+  assert.throws(
+    () =>
+      validation.validateSingleStrategyConfig({
+        itemization: [{ stat_consumption: "sensor.sauna" }],
+      }),
+    /strategy\.itemization\[0\]\.stat/i
   );
 });

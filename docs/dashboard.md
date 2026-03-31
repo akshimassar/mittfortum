@@ -36,7 +36,7 @@ Multipoint forecast resolution is strict per point:
 
 `itemization` item fields:
 
-- `stat_consumption` (required): statistic id for a device/itemized consumption source.
+- `stat` (required): statistic id for a device/itemized consumption source.
 - `name` (optional): display name for the itemization row/series.
 
 Minimal example:

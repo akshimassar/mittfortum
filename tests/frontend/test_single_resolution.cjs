@@ -56,8 +56,8 @@ test("falls back to auto Fortum source and prefs itemization", () => {
   assert.deepEqual(result.metrics.price, ["fortum:hourly_price_6094111"]);
   assert.deepEqual(result.metrics.temperature, ["fortum:hourly_temperature_6094111"]);
   assert.deepEqual(result.metrics.itemizations, [
-    { name: "Sauna", stat_consumption: "sensor.sauna" },
-    { stat_consumption: "sensor.boiler" },
+    { name: "Sauna", stat: "sensor.sauna" },
+    { stat: "sensor.boiler" },
   ]);
   assert.deepEqual(result.metrics.price_forecast, [
     "fortum:price_forecast_fi",
@@ -84,7 +84,7 @@ test("throws when itemization is not a list", () => {
   assert.throws(
     () =>
       hooks.resolveSingleStrategyMetrics({
-        config: { itemization: { stat_consumption: "sensor.bad" } },
+        config: { itemization: { stat: "sensor.bad" } },
         prefs: {},
         statisticIds: ["fortum:hourly_consumption_123"],
       }),

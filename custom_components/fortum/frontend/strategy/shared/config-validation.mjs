@@ -34,12 +34,12 @@ const normalizeItemization = (itemization, path) => {
       throw new Error(`${path}[${index}] must be an object.`);
     }
     const statConsumption = normalizeRequiredString(
-      entry.stat_consumption,
-      `${path}[${index}].stat_consumption`
+      entry.stat,
+      `${path}[${index}].stat`
     );
     const name = normalizeOptionalString(entry.name, `${path}[${index}].name`);
     return {
-      stat_consumption: statConsumption,
+      stat: statConsumption,
       ...(name ? { name } : {}),
     };
   });
