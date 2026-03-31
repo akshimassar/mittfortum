@@ -736,6 +736,10 @@ export class FortumEnergyFuturePriceCard extends HTMLElement {
     }
 
     const metrics = this._resolvedMetrics || {};
+    const forecastError =
+      typeof metrics.future_price_error === "string" && metrics.future_price_error.trim()
+        ? metrics.future_price_error.trim()
+        : null;
     const forecastIds = Array.isArray(metrics.price_forecast)
       ? metrics.price_forecast.filter((id) => typeof id === "string" && id.length)
       : [];
@@ -753,6 +757,16 @@ export class FortumEnergyFuturePriceCard extends HTMLElement {
       },
     };
     try {
+      if (forecastError) {
+        debugPayload.result = {
+          status: "forecast_error",
+          message: forecastError,
+        };
+        this._logFuturePriceDebug(debugPayload);
+        this._showCardError(forecastError);
+        return;
+      }
+
       if (!forecastIds.length) {
         debugPayload.result = {
           status: "no_area_ids",
@@ -848,12 +862,16 @@ export class FortumEnergyFuturePriceCard extends HTMLElement {
       });
 
       if (!series.some((entry) => Array.isArray(entry.data) && entry.data.length)) {
+        const noValuesMessage =
+          forecastIds.length === 1
+            ? `Price statistic ${forecastIds[0]} has no values for the selected range.`
+            : "No forecast price data available for configured Fortum sources.";
         debugPayload.result = {
           status: "no_points",
-          message: "No forecast price data available for configured Fortum sources.",
+          message: noValuesMessage,
         };
         this._logFuturePriceDebug(debugPayload);
-        this._showCardError("No forecast price data available for configured Fortum sources.");
+        this._showCardError(noValuesMessage);
         return;
       }
 

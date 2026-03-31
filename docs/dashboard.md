@@ -27,6 +27,13 @@ Multipoint point fields:
 - `name` (optional): tab title override.
 - `address` (optional): used as tab title when `name` is not provided.
 
+Multipoint forecast resolution is strict per point:
+
+- Entity id must exist as `sensor.metering_point_<number>`.
+- `price_area` is read only from that entity's attributes.
+- Forecast statistic id is derived as `fortum:price_forecast_<price_area_lowercase>`.
+- If sensor is missing, `price_area` is missing, or derived statistic has no values, the tomorrow-price card shows an explicit in-card error.
+
 `itemization` item fields:
 
 - `stat_consumption` (required): statistic id for a device/itemized consumption source.
