@@ -150,3 +150,7 @@ export class FortumEnergyDashboardStrategy extends HTMLElement {
     return this.generate(args.strategy || {}, args.hass);
   }
 }
+
+export class FortumEnergySingleDashboardStrategy extends FortumEnergyDashboardStrategy {}
+
+export class FortumEnergyMultipointDashboardStrategy extends FortumEnergyDashboardStrategy {}

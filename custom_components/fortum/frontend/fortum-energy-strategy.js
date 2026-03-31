@@ -5,7 +5,11 @@ import { FortumEnergyFuturePriceCard } from "/fortum-energy-static/strategy/card
 import { FortumEnergySettingsRedirectCard } from "/fortum-energy-static/strategy/cards/settings-redirect-card.js";
 import { FortumEnergyQuickRangesCard } from "/fortum-energy-static/strategy/cards/quick-ranges-card.js";
 import { FortumEnergySpacerCard } from "/fortum-energy-static/strategy/cards/spacer-card.js";
-import { FortumEnergyDashboardStrategy } from "/fortum-energy-static/strategy/strategies/legacy-strategy.js";
+import {
+  FortumEnergyDashboardStrategy,
+  FortumEnergyMultipointDashboardStrategy,
+  FortumEnergySingleDashboardStrategy,
+} from "/fortum-energy-static/strategy/strategies/legacy-strategy.js";
 import { deriveEnergyRuntimeConfig, normalizeEnergySourceOverrides } from "/fortum-energy-static/strategy/runtime-config.mjs";
 
 const registerIfNeeded = (tag, klass) => {
@@ -41,6 +45,14 @@ registerIfNeeded(
 registerIfNeeded("fortum-energy-future-price-card", FortumEnergyFuturePriceCard);
 registerIfNeeded("fortum-energy-settings-redirect-card", FortumEnergySettingsRedirectCard);
 try {
+  registerIfNeeded(
+    "ll-strategy-dashboard-fortum-energy-single",
+    FortumEnergySingleDashboardStrategy
+  );
+  registerIfNeeded(
+    "ll-strategy-dashboard-fortum-energy-multipoint",
+    FortumEnergyMultipointDashboardStrategy
+  );
   registerIfNeeded("ll-strategy-dashboard-fortum-energy", FortumEnergyDashboardStrategy);
 } catch (err) {
   console.error("[fortum-energy] strategy registration failed", err);
