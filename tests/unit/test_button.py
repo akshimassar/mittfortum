@@ -278,8 +278,8 @@ def test_build_single_dashboard_strategy_config_builds_expected_payload() -> Non
     assert config == {
         "strategy": {
             "type": "custom:fortum-energy-single",
-            "fortum": {
-                "metering_point_number": "6094111",
+            "metering_point": {
+                "number": "6094111",
             },
         }
     }
@@ -418,8 +418,8 @@ async def test_force_recreate_single_dashboard_button_recreates_dashboard() -> N
         {
             "strategy": {
                 "type": "custom:fortum-energy-single",
-                "fortum": {
-                    "metering_point_number": "6094111",
+                "metering_point": {
+                    "number": "6094111",
                 },
             }
         },

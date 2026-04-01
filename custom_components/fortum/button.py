@@ -96,8 +96,8 @@ def _build_single_dashboard_strategy_config(
     return {
         "strategy": {
             "type": "custom:fortum-energy-single",
-            "fortum": {
-                "metering_point_number": point_numbers[0],
+            "metering_point": {
+                "number": point_numbers[0],
             },
         }
     }
@@ -353,5 +353,5 @@ class FortumForceRecreateSingleDashboardButton(FortumEntity, ButtonEntity):
 
         _LOGGER.debug(
             "force recreated single dashboard for metering point %s",
-            strategy_config["strategy"]["fortum"]["metering_point_number"],
+            strategy_config["strategy"]["metering_point"]["number"],
         )
