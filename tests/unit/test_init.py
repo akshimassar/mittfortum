@@ -21,6 +21,7 @@ from custom_components.fortum.const import (
     CONF_DEBUG_LOGGING,
     DOMAIN,
 )
+from custom_components.fortum.models import MeteringPoint
 
 
 class TestInit:
@@ -286,7 +287,22 @@ class TestInit:
             yaml_dashboards={},
             resources=Mock(),
         )
-        mock_hass.data = {LOVELACE_DATA: lovelace_data}
+        mock_hass.data = {
+            LOVELACE_DATA: lovelace_data,
+            DOMAIN: {
+                "entry_1": {
+                    "session_manager": Mock(
+                        get_snapshot=Mock(
+                            return_value=SimpleNamespace(
+                                metering_points=(
+                                    MeteringPoint(metering_point_no="6094111"),
+                                )
+                            )
+                        )
+                    )
+                }
+            },
+        }
 
         with (
             patch("custom_components.fortum.DashboardsCollection") as mock_collection,
@@ -329,7 +345,12 @@ class TestInit:
             },
         )
         strategy_storage.async_save.assert_awaited_once_with(
-            {"strategy": {"type": "custom:fortum-energy"}}
+            {
+                "strategy": {
+                    "type": "custom:fortum-energy-single",
+                    "metering_point": {"number": "6094111"},
+                }
+            }
         )
         assert lovelace_data.dashboards["fortum-energy"] is runtime_storage
         mock_register_panel.assert_called_once()

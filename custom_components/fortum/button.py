@@ -19,8 +19,11 @@ from .const import (
     CONF_DEBUG_ENTITIES,
     DEFAULT_DEBUG_ENTITIES,
     DOMAIN,
-    RECREATE_MULTIPOINT_DASHBOARD_BUTTON_KEY,
-    RECREATE_SINGLE_DASHBOARD_BUTTON_KEY,
+    RECREATE_DASHBOARD_BUTTON_KEY,
+)
+from .dashboard_strategy import (
+    build_auto_dashboard_strategy_config,
+    collect_available_metering_points,
 )
 from .entity import FortumEntity
 from .exceptions import APIError
@@ -34,88 +37,11 @@ if TYPE_CHECKING:
     from .device import FortumDevice
 
 _LOGGER = logging.getLogger(__name__)
-_METERING_POINT_NUMBER_KEY = "number"
-_METERING_POINT_NAME_KEY = "name"
 
 
-def _build_multipoint_dashboard_strategy_config(
-    metering_points: list[Any],
-) -> dict[str, Any]:
-    """Build one-time multipoint strategy config payload."""
-    strategy_points: list[dict[str, Any]] = []
-    for point in metering_points:
-        metering_point_no = getattr(point, "metering_point_no", None)
-        if not isinstance(metering_point_no, str) or not metering_point_no.strip():
-            continue
-        metering_point_no = metering_point_no.strip()
-        address = getattr(point, "address", None)
-        name = (
-            address.strip()
-            if isinstance(address, str) and address.strip()
-            else metering_point_no
-        )
-        strategy_points.append(
-            {
-                _METERING_POINT_NUMBER_KEY: metering_point_no,
-                _METERING_POINT_NAME_KEY: name,
-                "itemization": [],
-            }
-        )
-
-    strategy_points.sort(key=lambda item: item[_METERING_POINT_NUMBER_KEY])
-    return {
-        "strategy": {
-            "type": "custom:fortum-energy-multipoint",
-            "metering_points": strategy_points,
-        }
-    }
-
-
-def _build_single_dashboard_strategy_config(
-    metering_points: list[Any],
-) -> dict[str, Any]:
-    """Build one-time single strategy config payload."""
-    point_numbers = sorted(
-        {
-            metering_point_no.strip()
-            for point in metering_points
-            for metering_point_no in [getattr(point, "metering_point_no", None)]
-            if isinstance(metering_point_no, str) and metering_point_no.strip()
-        }
-    )
-
-    if not point_numbers:
-        raise HomeAssistantError("No metering points found for dashboard generation")
-    if len(point_numbers) > 1:
-        raise HomeAssistantError(
-            "Multiple metering points found; use multipoint dashboard button"
-        )
-
-    return {
-        "strategy": {
-            "type": "custom:fortum-energy-single",
-            "metering_point": {
-                "number": point_numbers[0],
-            },
-        }
-    }
-
-
-def _has_authenticated_session(hass: HomeAssistant, entry_id: str) -> bool:
-    """Return whether the integration has a usable auth/session context."""
-    entry_data = hass.data.get(DOMAIN, {}).get(entry_id)
-    if not isinstance(entry_data, dict):
-        return False
-
-    session_manager = entry_data.get("session_manager")
-    if session_manager is None:
-        return False
-
-    snapshot = session_manager.get_snapshot()
-    if snapshot is None:
-        return False
-
-    return bool(snapshot.customer_id or snapshot.metering_points)
+def _has_available_metering_points(hass: HomeAssistant) -> bool:
+    """Return whether at least one metering point is available."""
+    return bool(collect_available_metering_points(hass))
 
 
 async def async_setup_entry(
@@ -138,12 +64,7 @@ async def async_setup_entry(
                 device=device,
                 entry=entry,
             ),
-            FortumForceRecreateSingleDashboardButton(
-                coordinator=coordinator,
-                device=device,
-                entry=entry,
-            ),
-            FortumForceRecreateMultipointDashboardButton(
+            FortumForceRecreateDashboardButton(
                 coordinator=coordinator,
                 device=device,
                 entry=entry,
@@ -173,7 +94,7 @@ class FortumClearStatisticsButton(FortumEntity, ButtonEntity):
     @property
     def available(self) -> bool:
         """Return if button is available."""
-        return _has_authenticated_session(self.coordinator.hass, self._entry.entry_id)
+        return _has_available_metering_points(self.coordinator.hass)
 
     async def async_press(self) -> None:
         """Clear all imported statistics for Fortum metering points."""
@@ -192,8 +113,8 @@ class FortumClearStatisticsButton(FortumEntity, ButtonEntity):
         )
 
 
-class FortumForceRecreateMultipointDashboardButton(FortumEntity, ButtonEntity):
-    """Debug button to force-recreate multipoint dashboard."""
+class FortumForceRecreateDashboardButton(FortumEntity, ButtonEntity):
+    """Debug button to force-recreate dashboard from available points."""
 
     def __init__(
         self,
@@ -201,40 +122,30 @@ class FortumForceRecreateMultipointDashboardButton(FortumEntity, ButtonEntity):
         device: FortumDevice,
         entry: ConfigEntry,
     ) -> None:
-        """Initialize force-recreate multipoint dashboard button."""
+        """Initialize force-recreate dashboard button."""
         super().__init__(
             coordinator=coordinator,
             device=device,
-            entity_key=RECREATE_MULTIPOINT_DASHBOARD_BUTTON_KEY,
-            name="Force Recreate Multipoint Dashboard",
+            entity_key=RECREATE_DASHBOARD_BUTTON_KEY,
+            name="Re-Create Dashboard (Force)",
         )
         self._entry = entry
 
     @property
     def available(self) -> bool:
         """Return if button is available."""
-        return _has_authenticated_session(self.coordinator.hass, self._entry.entry_id)
+        return _has_available_metering_points(self.coordinator.hass)
 
     async def async_press(self) -> None:
-        """Force recreate /fortum-energy dashboard with multipoint strategy config."""
+        """Force recreate /fortum-energy dashboard from current topology."""
         hass = self.coordinator.hass
-        entry_data = hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
-        if not isinstance(entry_data, dict):
-            raise HomeAssistantError("Entry data is unavailable")
-
-        session_manager = entry_data.get("session_manager")
-        snapshot = (
-            session_manager.get_snapshot() if session_manager is not None else None
-        )
-        metering_points = list(snapshot.metering_points) if snapshot else []
+        metering_points = collect_available_metering_points(hass)
         if not metering_points:
             raise HomeAssistantError(
                 "No metering points found for dashboard generation"
             )
 
-        strategy_config = _build_multipoint_dashboard_strategy_config(metering_points)
-        if not strategy_config["strategy"]["metering_points"]:
-            raise HomeAssistantError("No valid metering point numbers found")
+        strategy_config = build_auto_dashboard_strategy_config(metering_points)
 
         try:
             await _async_ensure_dashboard_strategy_lovelace_resource(hass)
@@ -245,58 +156,7 @@ class FortumForceRecreateMultipointDashboardButton(FortumEntity, ButtonEntity):
             raise HomeAssistantError(str(exc)) from exc
 
         _LOGGER.debug(
-            "force recreated multipoint dashboard with %d metering points",
-            len(strategy_config["strategy"]["metering_points"]),
-        )
-
-
-class FortumForceRecreateSingleDashboardButton(FortumEntity, ButtonEntity):
-    """Debug button to force-recreate single dashboard."""
-
-    def __init__(
-        self,
-        coordinator: HourlyConsumptionSyncCoordinator,
-        device: FortumDevice,
-        entry: ConfigEntry,
-    ) -> None:
-        """Initialize force-recreate single dashboard button."""
-        super().__init__(
-            coordinator=coordinator,
-            device=device,
-            entity_key=RECREATE_SINGLE_DASHBOARD_BUTTON_KEY,
-            name="Force Recreate Single Dashboard",
-        )
-        self._entry = entry
-
-    @property
-    def available(self) -> bool:
-        """Return if button is available."""
-        return _has_authenticated_session(self.coordinator.hass, self._entry.entry_id)
-
-    async def async_press(self) -> None:
-        """Force recreate /fortum-energy dashboard with single strategy config."""
-        hass = self.coordinator.hass
-        entry_data = hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
-        if not isinstance(entry_data, dict):
-            raise HomeAssistantError("Entry data is unavailable")
-
-        session_manager = entry_data.get("session_manager")
-        snapshot = (
-            session_manager.get_snapshot() if session_manager is not None else None
-        )
-        metering_points = list(snapshot.metering_points) if snapshot else []
-
-        strategy_config = _build_single_dashboard_strategy_config(metering_points)
-
-        try:
-            await _async_ensure_dashboard_strategy_lovelace_resource(hass)
-            await _async_force_recreate_dashboard_strategy_dashboard(
-                hass, strategy_config
-            )
-        except RuntimeError as exc:
-            raise HomeAssistantError(str(exc)) from exc
-
-        _LOGGER.debug(
-            "force recreated single dashboard for metering point %s",
-            strategy_config["strategy"]["metering_point"]["number"],
+            "force recreated dashboard using strategy %s with %d metering points",
+            strategy_config["strategy"].get("type"),
+            len(metering_points),
         )

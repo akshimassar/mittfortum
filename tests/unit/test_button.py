@@ -7,10 +7,11 @@ from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.fortum.button import (
     FortumClearStatisticsButton,
-    FortumForceRecreateMultipointDashboardButton,
-    FortumForceRecreateSingleDashboardButton,
-    _build_multipoint_dashboard_strategy_config,
-    _build_single_dashboard_strategy_config,
+    FortumForceRecreateDashboardButton,
+)
+from custom_components.fortum.dashboard_strategy import (
+    build_multipoint_dashboard_strategy_config,
+    build_single_dashboard_strategy_config,
 )
 from custom_components.fortum.device import FortumDevice
 from custom_components.fortum.exceptions import APIError
@@ -75,8 +76,8 @@ async def test_clear_statistics_button_surfaces_api_errors() -> None:
     mock_resume.assert_called_once_with(coordinator.hass)
 
 
-def test_buttons_available_with_authenticated_session() -> None:
-    """Debug buttons should be available with valid session/auth."""
+def test_buttons_available_with_metering_points() -> None:
+    """Debug buttons should be available with metering points."""
     coordinator = Mock()
     coordinator.last_update_success = False
     coordinator.data = None
@@ -88,7 +89,7 @@ def test_buttons_available_with_authenticated_session() -> None:
                     get_snapshot=Mock(
                         return_value=Mock(
                             customer_id="123",
-                            metering_points=(),
+                            metering_points=(MeteringPoint(metering_point_no="111"),),
                         )
                     )
                 )
@@ -124,16 +125,10 @@ def test_buttons_unavailable_without_session_snapshot() -> None:
 
 def test_build_multipoint_dashboard_strategy_config_defaults_name_to_address() -> None:
     """Multipoint config should default name to address and include itemization."""
-    config = _build_multipoint_dashboard_strategy_config(
+    config = build_multipoint_dashboard_strategy_config(
         [
-            MeteringPoint(
-                metering_point_no="7000222",
-                address="Street 2, City",
-            ),
-            MeteringPoint(
-                metering_point_no="6094111",
-                address=None,
-            ),
+            {"number": "7000222", "address": "Street 2, City"},
+            {"number": "6094111", "address": ""},
         ]
     )
 
@@ -158,13 +153,8 @@ def test_build_multipoint_dashboard_strategy_config_defaults_name_to_address() -
 
 def test_build_multipoint_dashboard_strategy_config_uses_canonical_shape() -> None:
     """Generated multipoint config should keep canonical keys only."""
-    config = _build_multipoint_dashboard_strategy_config(
-        [
-            MeteringPoint(
-                metering_point_no="6094111",
-                address="Street 1, City",
-            )
-        ]
+    config = build_multipoint_dashboard_strategy_config(
+        [{"number": "6094111", "address": "Street 1, City"}]
     )
 
     strategy = config["strategy"]
@@ -173,26 +163,29 @@ def test_build_multipoint_dashboard_strategy_config_uses_canonical_shape() -> No
     assert set(point.keys()) == {"number", "name", "itemization"}
 
 
-def test_build_single_dashboard_strategy_config_requires_single_metering_point() -> (
-    None
-):
-    """Single dashboard config requires exactly one metering point."""
-    with pytest.raises(
-        HomeAssistantError,
-        match="Multiple metering points found",
-    ):
-        _build_single_dashboard_strategy_config(
-            [
-                MeteringPoint(metering_point_no="111"),
-                MeteringPoint(metering_point_no="222"),
-            ]
-        )
+def test_build_single_dashboard_strategy_config_uses_first_sorted_number() -> None:
+    """Single dashboard config should use first sorted metering point number."""
+    config = build_single_dashboard_strategy_config(
+        [
+            {"number": "7000222", "address": "Street 2, City"},
+            {"number": "6094111", "address": "Street 1, City"},
+        ]
+    )
+
+    assert config == {
+        "strategy": {
+            "type": "custom:fortum-energy-single",
+            "metering_point": {
+                "number": "6094111",
+            },
+        }
+    }
 
 
 def test_build_single_dashboard_strategy_config_builds_expected_payload() -> None:
     """Single dashboard config should include explicit metering point override."""
-    config = _build_single_dashboard_strategy_config(
-        [MeteringPoint(metering_point_no="6094111")]
+    config = build_single_dashboard_strategy_config(
+        [{"number": "6094111", "address": "Street 1, City"}]
     )
     assert config == {
         "strategy": {
@@ -204,8 +197,8 @@ def test_build_single_dashboard_strategy_config_builds_expected_payload() -> Non
     }
 
 
-async def test_force_recreate_multipoint_dashboard_button_recreates_dashboard() -> None:
-    """Button press should force-write multipoint strategy dashboard config."""
+async def test_force_recreate_dashboard_button_creates_multipoint_when_many() -> None:
+    """Button press should force-write multipoint strategy when many points exist."""
     coordinator = Mock()
     coordinator.last_update_success = True
     coordinator.data = []
@@ -221,6 +214,10 @@ async def test_force_recreate_multipoint_dashboard_button_recreates_dashboard() 
                                     metering_point_no="6094111",
                                     address="Street 1, City",
                                 ),
+                                MeteringPoint(
+                                    metering_point_no="7000222",
+                                    address="Street 2, City",
+                                ),
                             ),
                         )
                     )
@@ -229,9 +226,7 @@ async def test_force_recreate_multipoint_dashboard_button_recreates_dashboard() 
         }
     }
     entry = Mock(entry_id="entry_1")
-    button = FortumForceRecreateMultipointDashboardButton(
-        coordinator, _mock_device(), entry
-    )
+    button = FortumForceRecreateDashboardButton(coordinator, _mock_device(), entry)
 
     with (
         patch(
@@ -256,14 +251,19 @@ async def test_force_recreate_multipoint_dashboard_button_recreates_dashboard() 
                         "number": "6094111",
                         "name": "Street 1, City",
                         "itemization": [],
-                    }
+                    },
+                    {
+                        "number": "7000222",
+                        "name": "Street 2, City",
+                        "itemization": [],
+                    },
                 ],
             }
         },
     )
 
 
-async def test_force_recreate_multipoint_dashboard_button_requires_metering_points():
+async def test_force_recreate_dashboard_button_requires_metering_points():
     """Button press should fail when no metering points are available."""
     coordinator = Mock()
     coordinator.last_update_success = True
@@ -279,9 +279,7 @@ async def test_force_recreate_multipoint_dashboard_button_requires_metering_poin
         }
     }
     entry = Mock(entry_id="entry_1")
-    button = FortumForceRecreateMultipointDashboardButton(
-        coordinator, _mock_device(), entry
-    )
+    button = FortumForceRecreateDashboardButton(coordinator, _mock_device(), entry)
 
     with pytest.raises(
         HomeAssistantError,
@@ -290,8 +288,8 @@ async def test_force_recreate_multipoint_dashboard_button_requires_metering_poin
         await button.async_press()
 
 
-async def test_force_recreate_single_dashboard_button_recreates_dashboard() -> None:
-    """Single button press should force-write single strategy dashboard config."""
+async def test_force_recreate_dashboard_button_creates_single_when_one() -> None:
+    """Button press should force-write single strategy when one point exists."""
     coordinator = Mock()
     coordinator.last_update_success = True
     coordinator.data = []
@@ -315,9 +313,7 @@ async def test_force_recreate_single_dashboard_button_recreates_dashboard() -> N
         }
     }
     entry = Mock(entry_id="entry_1")
-    button = FortumForceRecreateSingleDashboardButton(
-        coordinator, _mock_device(), entry
-    )
+    button = FortumForceRecreateDashboardButton(coordinator, _mock_device(), entry)
 
     with (
         patch(
@@ -345,8 +341,8 @@ async def test_force_recreate_single_dashboard_button_recreates_dashboard() -> N
     )
 
 
-async def test_force_recreate_single_dashboard_button_requires_single_point() -> None:
-    """Single button press should fail when multiple metering points exist."""
+async def test_force_recreate_dashboard_button_available_across_entries() -> None:
+    """Dashboard button should be available when any Fortum entry has points."""
     coordinator = Mock()
     coordinator.last_update_success = True
     coordinator.data = []
@@ -354,26 +350,20 @@ async def test_force_recreate_single_dashboard_button_requires_single_point() ->
     coordinator.hass.data = {
         "fortum": {
             "entry_1": {
+                "session_manager": Mock(get_snapshot=Mock(return_value=None)),
+            },
+            "entry_2": {
                 "session_manager": Mock(
                     get_snapshot=Mock(
                         return_value=Mock(
-                            metering_points=(
-                                MeteringPoint(metering_point_no="111"),
-                                MeteringPoint(metering_point_no="222"),
-                            ),
+                            metering_points=(MeteringPoint(metering_point_no="111"),),
                         )
-                    ),
-                )
-            }
+                    )
+                ),
+            },
         }
     }
     entry = Mock(entry_id="entry_1")
-    button = FortumForceRecreateSingleDashboardButton(
-        coordinator, _mock_device(), entry
-    )
+    button = FortumForceRecreateDashboardButton(coordinator, _mock_device(), entry)
 
-    with pytest.raises(
-        HomeAssistantError,
-        match="Multiple metering points found",
-    ):
-        await button.async_press()
+    assert button.available is True

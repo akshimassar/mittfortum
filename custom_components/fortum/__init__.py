@@ -60,6 +60,10 @@ from .const import (
 )
 from .coordinators.hourly_consumption import HourlyConsumptionSyncCoordinator
 from .coordinators.spot_price import SpotPriceSyncCoordinator
+from .dashboard_strategy import (
+    build_auto_dashboard_strategy_config,
+    collect_available_metering_points,
+)
 from .device import FortumDevice
 from .exceptions import AuthenticationError, FortumError, InvalidResponseError
 from .log_capture import ensure_diagnostics_log_capture, remove_diagnostics_log_capture
@@ -79,7 +83,6 @@ _DASHBOARD_STRATEGY_URL = f"/fortum-energy/{_DASHBOARD_STRATEGY_FILE}"
 _DASHBOARD_URL_PATH = "fortum-energy"
 _DASHBOARD_TITLE = "Fortum"
 _DASHBOARD_ICON = "mdi:transmission-tower"
-_DASHBOARD_STRATEGY_TYPE = "custom:fortum-energy"
 _DASHBOARD_STATIC_REGISTERED_KEY = f"{DOMAIN}_dashboard_static_registered"
 _DASHBOARD_RESOURCE_REGISTERED_KEY = f"{DOMAIN}_dashboard_resource_registered"
 _DASHBOARD_CREATE_REGISTERED_KEY = f"{DOMAIN}_dashboard_create_registered"
@@ -537,6 +540,15 @@ async def _async_ensure_dashboard_strategy_dashboard(hass: HomeAssistant) -> boo
         )
         return False
 
+    metering_points = collect_available_metering_points(hass)
+    if not metering_points:
+        _LOGGER.info(
+            "no metering points available; skipping automatic dashboard creation"
+        )
+        return False
+
+    strategy_config = build_auto_dashboard_strategy_config(metering_points)
+
     created_dashboard = await dashboards_collection.async_create_item(
         {
             CONF_URL_PATH: _DASHBOARD_URL_PATH,
@@ -549,12 +561,13 @@ async def _async_ensure_dashboard_strategy_dashboard(hass: HomeAssistant) -> boo
     )
 
     dashboard_config = LovelaceStorage(hass, created_dashboard)
-    await dashboard_config.async_save({"strategy": {"type": _DASHBOARD_STRATEGY_TYPE}})
+    await dashboard_config.async_save(strategy_config)
     _register_created_dashboard_runtime(hass, lovelace_data, created_dashboard)
     _LOGGER.info(
-        "created dashboard at /%s using strategy '%s'",
+        "created dashboard at /%s using strategy '%s' with %d metering points",
         _DASHBOARD_URL_PATH,
-        _DASHBOARD_STRATEGY_TYPE,
+        strategy_config["strategy"].get("type"),
+        len(metering_points),
     )
     return True
 
