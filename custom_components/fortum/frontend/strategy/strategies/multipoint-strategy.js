@@ -8,8 +8,9 @@ import {
 } from "/fortum-energy-static/strategy/shared/multipoint-runtime.mjs";
 
 export class FortumEnergyMultipointDashboardStrategy extends FortumEnergySingleDashboardStrategy {
-  static getConfigElement() {
-    return undefined;
+  static async getConfigElement() {
+    await import("/fortum-energy-static/strategy/editors/multipoint-strategy-editor.js");
+    return document.createElement("fortum-energy-multipoint-strategy-editor");
   }
 
   static async generate(config, hass) {
