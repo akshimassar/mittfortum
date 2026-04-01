@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [4.3.0]
+
+### Changed
+- Fixed dashboard bug leading to duplication of untracked energy when itemization was chosen.
+- Reworked the dashboard strategy into clearer single and multipoint flows, including dedicated strategy editors and stricter runtime config validation.
+- Improved dashboard runtime behavior and maintainability by splitting strategy cards/utilities into focused modules and reducing unnecessary refresh churn.
+- Refined itemization UX and persistence, including more resilient picker behavior, better labels, and local backup handling for manual selections.
+- Added metering-point temperature source override controls for dashboard strategy configuration.
+- Unified backend dashboard generation logic so forced dashboard recreation and automatic dashboard creation both select single vs multipoint consistently from available metering points.
+
 ## [4.2.1]
 
 ### Changed

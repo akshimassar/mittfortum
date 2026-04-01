@@ -125,5 +125,6 @@ Availability, i.e. Session Manager:
   - `hacs.json` -> minimum supported `homeassistant` version
   - `CHANGELOG.md` -> add/update release notes for the new version
 - Verify docs reflect behavior changes before tagging (at minimum `README.md`, `docs/dashboard.md`, `docs/development.md`).
+- Keep `CHANGELOG.md` end-user oriented, do not include updates that doesn't change UX.
 - Use annotated tags with `v` prefix (for example `v4.1.0`) and ensure old/non-canonical tags are not left behind.
 - After tagging and pushing, remind the user to publish the GitHub Release for that tag (title + notes from `CHANGELOG.md`).
