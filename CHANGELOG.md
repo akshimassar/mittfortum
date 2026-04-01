@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [4.3.1]
+
+### Changed
+- Improved dashboard setup docs with a visual dashboard editor screenshot and updated feature highlight in README.
+
 ## [4.3.0]
 
 ### Changed
