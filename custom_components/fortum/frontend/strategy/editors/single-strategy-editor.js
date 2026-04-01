@@ -122,6 +122,11 @@ export class FortumEnergySingleStrategyEditor extends HTMLElement {
           display: grid;
           gap: 10px;
         }
+        .mode-option {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
         .item-row {
           display: grid;
           grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
@@ -184,18 +189,34 @@ export class FortumEnergySingleStrategyEditor extends HTMLElement {
         </div>
 
         <div class="field">
-          <div class="row">
+          <div class="mode-option">
             <input
-              id="custom-itemization"
+              id="itemization-source-energy"
               class="checkbox"
-              type="checkbox"
-              data-field="custom_itemization"
+              type="radio"
+              name="itemization-source"
+              data-field="itemization_mode"
+              data-value="energy"
+              ${this._state.hasExplicitItemization ? "" : "checked"}
+            />
+            <label for="itemization-source-energy">Use Energy dashboard itemization</label>
+          </div>
+          ${
+            this._state.hasExplicitItemization
+              ? ""
+              : `<div class="hint">Manage itemizations in Energy settings. <a href="/config/energy/electricity?historyBack=1">Open Energy settings</a>.</div>`
+          }
+          <div class="mode-option">
+            <input
+              id="itemization-source-manual"
+              class="checkbox"
+              type="radio"
+              name="itemization-source"
+              data-field="itemization_mode"
+              data-value="manual"
               ${this._state.hasExplicitItemization ? "checked" : ""}
             />
-            <label for="custom-itemization">Use custom itemization for this dashboard</label>
-          </div>
-          <div class="hint">
-            When disabled, dashboard uses Energy preferences device itemization.
+            <label for="itemization-source-manual">Specify itemizations manually</label>
           </div>
         </div>
 
@@ -254,9 +275,9 @@ export class FortumEnergySingleStrategyEditor extends HTMLElement {
       return;
     }
 
-    if (field === "custom_itemization") {
-      this._state.hasExplicitItemization = target.checked;
-      if (target.checked && this._state.itemizationRows.length === 0) {
+    if (field === "itemization_mode") {
+      this._state.hasExplicitItemization = target.dataset.value === "manual";
+      if (this._state.hasExplicitItemization && this._state.itemizationRows.length === 0) {
         this._state.itemizationRows = [{ stat: "", name: "" }];
       }
       this._validateAndEmit();
