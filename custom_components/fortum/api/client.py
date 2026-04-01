@@ -253,8 +253,6 @@ class FortumAPIClient:
     async def sync_hourly_data_for_metering_points(
         self,
         metering_points: tuple[MeteringPoint, ...],
-        *,
-        force_resync: bool = False,
     ) -> int:
         """Sync hourly data for provided metering points in two-week chunks."""
         if not metering_points:
@@ -273,7 +271,6 @@ class FortumAPIClient:
                 metering_point_no,
                 two_weeks_ago,
                 utc_now,
-                force_resync=force_resync,
             )
 
             if sync_start < utc_now:
@@ -403,22 +400,8 @@ class FortumAPIClient:
         metering_point_no: str,
         two_weeks_ago: datetime,
         now: datetime,
-        *,
-        force_resync: bool,
     ) -> tuple[datetime, bool]:
         """Determine hourly-data sync start and whether historical mode is needed."""
-        if force_resync:
-            earliest = self._earliest_available_by_metering_point.get(metering_point_no)
-            if earliest is None:
-                _LOGGER.warning(
-                    "force re-sync requested for %s but earliest hour is unknown; "
-                    "starting from two_weeks_ago=%s",
-                    metering_point_no,
-                    two_weeks_ago.isoformat(),
-                )
-                return two_weeks_ago, True
-            return earliest, True
-
         last_recorded_hour = await self._find_last_recorded_cost_stat_hour(
             metering_point_no,
             two_weeks_ago,

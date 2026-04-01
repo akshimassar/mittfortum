@@ -100,7 +100,6 @@ class TestHourlyConsumptionSyncCoordinator:
         assert data == []
         mock_api_client.sync_hourly_data_for_metering_points.assert_called_once_with(
             coordinator._session_manager.get_snapshot.return_value.metering_points,
-            force_resync=False,
         )
         assert coordinator.last_statistics_sync is not None
 

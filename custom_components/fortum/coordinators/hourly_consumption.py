@@ -65,14 +65,11 @@ class HourlyConsumptionSyncCoordinator(DataUpdateCoordinator[list[ConsumptionDat
 
     async def async_run_statistics_sync(
         self,
-        *,
-        force_resync: bool = False,
     ) -> int:
         """Run statistics sync and update sync timestamp."""
         snapshot = self._require_snapshot()
         imported_points = await self.api_client.sync_hourly_data_for_metering_points(
             snapshot.metering_points,
-            force_resync=force_resync,
         )
         try:
             await self._async_refresh_current_month_totals(snapshot)
@@ -261,9 +258,7 @@ class HourlyConsumptionSyncCoordinator(DataUpdateCoordinator[list[ConsumptionDat
         """Fetch data from API."""
         try:
             data: list[ConsumptionData] = []
-            await self.async_run_statistics_sync(
-                force_resync=False,
-            )
+            await self.async_run_statistics_sync()
         except APIError as exc:
             _LOGGER.exception("hourly sync API error")
             raise UpdateFailed(f"API error: {exc}") from exc

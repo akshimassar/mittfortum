@@ -872,35 +872,6 @@ class TestFortumAPIClient:
         sync_start = mock_sync_forward.call_args.args[1]
         assert sync_start == two_weeks_ago + timedelta(hours=2)
 
-    async def test_sync_hourly_data_force_resync_uses_earliest_start(
-        self, mock_hass, mock_auth_client
-    ):
-        """Force re-sync should always start from earliest available marker."""
-        client = FortumAPIClient(mock_hass, mock_auth_client)
-        earliest_start = datetime.fromisoformat("2026-01-01T00:00:00+00:00")
-
-        with (
-            patch.object(
-                client,
-                "_sync_hourly_data",
-                return_value=6,
-            ) as mock_sync_forward,
-        ):
-            imported = await client.sync_hourly_data_for_metering_points(
-                (
-                    MeteringPoint(
-                        metering_point_no="6094111",
-                        earliest_hourly_available_at_utc=earliest_start,
-                    ),
-                ),
-                force_resync=True,
-            )
-
-        assert imported == 6
-        mock_sync_forward.assert_called_once()
-        assert mock_sync_forward.call_args.args[1] == earliest_start
-        assert mock_sync_forward.call_args.kwargs["continue_after_missing"] is True
-
     async def test_find_last_recorded_cost_stat_hour_parses_string_timestamp(
         self, mock_hass, mock_auth_client
     ):
@@ -973,7 +944,6 @@ class TestFortumAPIClient:
                 "6094111",
                 two_weeks_ago,
                 now,
-                force_resync=False,
             )
 
         assert start == cached_earliest

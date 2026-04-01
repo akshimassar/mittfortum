@@ -188,7 +188,6 @@ class TestFortumIntegration:
         # Verify statistics sync was called
         mock_api_client.sync_hourly_data_for_metering_points.assert_called_once_with(
             mock_session_manager.get_snapshot.return_value.metering_points,
-            force_resync=False,
         )
 
         # Coordinator carries no legacy monthly payload

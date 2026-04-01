@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.components.button import ButtonEntity
@@ -20,7 +19,6 @@ from .const import (
     CONF_DEBUG_ENTITIES,
     DEFAULT_DEBUG_ENTITIES,
     DOMAIN,
-    FULL_SYNC_BUTTON_KEY,
     RECREATE_MULTIPOINT_DASHBOARD_BUTTON_KEY,
     RECREATE_SINGLE_DASHBOARD_BUTTON_KEY,
 )
@@ -135,11 +133,6 @@ async def async_setup_entry(
 
     async_add_entities(
         [
-            FortumFullHistoryResyncButton(
-                coordinator=coordinator,
-                device=device,
-                entry=entry,
-            ),
             FortumClearStatisticsButton(
                 coordinator=coordinator,
                 device=device,
@@ -157,54 +150,6 @@ async def async_setup_entry(
             ),
         ]
     )
-
-
-class FortumFullHistoryResyncButton(FortumEntity, ButtonEntity):
-    """Debug button to run full history re-sync."""
-
-    def __init__(
-        self,
-        coordinator: HourlyConsumptionSyncCoordinator,
-        device: FortumDevice,
-        entry: ConfigEntry,
-    ) -> None:
-        """Initialize full sync button."""
-        super().__init__(
-            coordinator=coordinator,
-            device=device,
-            entity_key=FULL_SYNC_BUTTON_KEY,
-            name="Full History Re-Sync",
-        )
-        self._entry = entry
-
-    @property
-    def available(self) -> bool:
-        """Return if button is available."""
-        return _has_authenticated_session(self.coordinator.hass, self._entry.entry_id)
-
-    async def async_press(self) -> None:
-        """Run full history re-sync from earliest available date."""
-        started = time.perf_counter()
-        pause_all_sync_schedules(self.coordinator.hass)
-        coordinator = cast(Any, self.coordinator)
-        try:
-            imported_points = await coordinator.async_run_statistics_sync(
-                force_resync=True,
-            )
-        except APIError as exc:
-            elapsed = time.perf_counter() - started
-            raise HomeAssistantError(
-                f"Full history re-sync failed after {elapsed:.2f}s: {exc}"
-            ) from exc
-        finally:
-            resume_all_sync_schedules(self.coordinator.hass)
-
-        elapsed = time.perf_counter() - started
-        _LOGGER.info(
-            "manual full-history re-sync processed %d points in %.2fs",
-            imported_points,
-            elapsed,
-        )
 
 
 class FortumClearStatisticsButton(FortumEntity, ButtonEntity):
