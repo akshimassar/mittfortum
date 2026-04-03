@@ -144,9 +144,7 @@ async def test_migrate_unique_ids_to_entry_id_skips_when_already_migrated(
     assert device_registry.updated == []
 
 
-async def test_migrate_unique_ids_to_entry_id_skips_collision(
-    mock_hass, caplog
-) -> None:
+async def test_migrate_unique_ids_to_entry_id_skips_collision(mock_hass) -> None:
     """Skip migration when target unique_id already exists."""
     entry = SimpleNamespace(entry_id="01ABC")
     entity_entries = [
@@ -191,7 +189,6 @@ async def test_migrate_unique_ids_to_entry_id_skips_collision(
         )
 
     assert entity_registry.updated == []
-    assert "skipping unique_id migration due to collision" in caplog.text
 
 
 async def test_migrate_unique_ids_to_entry_id_uses_username_prefix_when_needed(

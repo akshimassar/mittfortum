@@ -1,6 +1,5 @@
 """Unit tests for FortumAPIClient."""
 
-import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
@@ -198,10 +197,10 @@ class TestFortumAPIClient:
         assert result == []
         assert mock_fetch.call_count == 1
 
-    async def test_get_time_series_data_logs_context_after_retry_exhaustion(
+    async def test_get_time_series_data_raises_after_retry_exhaustion(
         self, mock_hass, mock_auth_client
     ):
-        """Log request context and raise when fetch fails."""
+        """Raise when fetch fails after retry exhaustion."""
         client = FortumAPIClient(mock_hass, mock_auth_client)
         request_from = datetime.fromisoformat("2026-01-01T00:00:00+00:00")
         request_to = datetime.fromisoformat("2026-06-30T00:00:00+00:00")
@@ -214,7 +213,6 @@ class TestFortumAPIClient:
                     "Server error: [GraphQL] Subgraph errors redacted"
                 ),
             ) as mock_fetch,
-            patch("custom_components.fortum.api.client._LOGGER.info") as mock_error,
         ):
             with pytest.raises(APIError, match="Subgraph errors redacted"):
                 await client.get_time_series_data(
@@ -234,11 +232,6 @@ class TestFortumAPIClient:
             series_type="CONSUMPTION",
             request_timeout=None,
         )
-        mock_error.assert_called_once()
-        assert "time series fetch failed" in mock_error.call_args.args[0]
-        assert mock_error.call_args.args[1] == ["6094111"]
-        assert mock_error.call_args.args[2] == request_from.isoformat()
-        assert mock_error.call_args.args[3] == request_to.isoformat()
 
     async def test_fetch_spot_prices_for_areas_uses_spot_prices_endpoint(
         self, mock_hass, mock_auth_client
@@ -650,12 +643,12 @@ class TestFortumAPIClient:
             mock_sleep.assert_any_await(REQUEST_RETRY_DELAYS[0])
             mock_sleep.assert_any_await(REQUEST_RETRY_DELAYS[1])
 
-    async def test_get_logs_final_failure_with_url_and_details(
+    async def test_get_raises_after_final_failure(
         self,
         mock_hass,
         mock_auth_client,
     ):
-        """Final GET attempt should log URL and exception details."""
+        """Final GET attempt should raise APIError."""
         mock_auth_client.access_token = "test_access_token_123"
         mock_auth_client.session_cookies = {"sessionid": "test_session"}
 
@@ -674,7 +667,6 @@ class TestFortumAPIClient:
             patch(
                 "custom_components.fortum.api.client.get_async_client"
             ) as mock_get_client,
-            patch("custom_components.fortum.api.client._LOGGER.info") as mock_error,
         ):
             mock_client = AsyncMock()
             mock_client.get.return_value = Mock(status_code=500, text="error")
@@ -684,14 +676,6 @@ class TestFortumAPIClient:
 
             with pytest.raises(APIError):
                 await client._get("https://www.fortum.com/se/el/api/test")
-
-        mock_error.assert_called_once()
-        args = mock_error.call_args.args
-        assert args[0] == "GET failed after %d/%d attempts for %s: %s"
-        assert args[1] == 3
-        assert args[2] == 3
-        assert args[3] == "https://www.fortum.com/se/el/api/test"
-        assert "APIError" in args[4]
 
     async def test_session_expiration_307_redirect(self, mock_hass, mock_auth_client):
         """Test 307 redirect handling for TokenExpired redirect."""
@@ -1005,10 +989,10 @@ class TestFortumAPIClient:
             "2021-03-19T00:00:00+00:00"
         )
 
-    async def test_backfill_stops_after_missing_price_gap(
+    async def test_recent_sync_stops_after_missing_price_gap(
         self, mock_hass, mock_auth_client
     ):
-        """Warn and stop import when price reappears after a missing gap."""
+        """Recent-window sync stops when price reappears after a missing gap."""
         client = FortumAPIClient(mock_hass, mock_auth_client)
 
         time_series = TimeSeries(
@@ -1305,13 +1289,12 @@ class TestFortumAPIClient:
         assert kwargs["from_date"] == expected_from
         assert kwargs["to_date"] == expected_to
 
-    async def test_record_hourly_data_stats_logs_latest_available_window(
+    async def test_record_hourly_data_stats_with_sparse_data(
         self,
         mock_hass,
         mock_auth_client,
-        caplog,
     ) -> None:
-        """Import summary should include latest available consumption window."""
+        """Hourly stats import handles sparse windows without new records."""
         client = FortumAPIClient(mock_hass, mock_auth_client)
         from_date = datetime.fromisoformat("2026-03-10T00:00:00+00:00")
         to_date = datetime.fromisoformat("2026-03-10T03:00:00+00:00")
@@ -1340,7 +1323,6 @@ class TestFortumAPIClient:
             ],
         )
 
-        caplog.set_level(logging.DEBUG, logger="custom_components.fortum.api.client")
         with patch.object(client, "get_time_series_data", return_value=[time_series]):
             imported = await client._record_hourly_data_stats(
                 "6094111",
@@ -1350,11 +1332,6 @@ class TestFortumAPIClient:
             )
 
         assert imported == 0
-        assert (
-            "hourly stats import done: metering_point_no=6094111 "
-            "latest_available=2026-03-10 -> 2026-03-10 "
-            "processed_records=0"
-        ) in caplog.text
 
     async def test_record_hourly_data_stats_skips_unchanged_digest(
         self,

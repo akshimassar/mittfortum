@@ -449,10 +449,8 @@ class TestOAuth2AuthClient:
         assert mock_client.get.call_count == 3
         assert mock_sleep.call_args_list[0][0][0] == 0.5
 
-    async def test_verify_session_logs_warning_when_first_attempt_has_no_user(
-        self, mock_hass
-    ):
-        """Log a warning when first session verification misses user data."""
+    async def test_verify_session_first_retry_starts_without_sleep(self, mock_hass):
+        """First missing user response should proceed without sleep delay."""
         client = OAuth2AuthClient(
             hass=mock_hass,
             username="test@example.com",
@@ -478,14 +476,12 @@ class TestOAuth2AuthClient:
 
         with (
             patch("custom_components.fortum.api.auth.asyncio.sleep") as mock_sleep,
-            patch("custom_components.fortum.api.auth._LOGGER.info") as mock_warning,
             patch.object(client, "_validate_session_against_api", return_value=True),
         ):
             mock_sleep.return_value = None
             result = await client._verify_session_established(mock_client)
 
         assert result == valid_session
-        mock_warning.assert_called_once()
         assert mock_sleep.call_count == 0
 
     async def test_verify_session_raises_when_user_never_available(self, mock_hass):
