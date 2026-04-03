@@ -793,6 +793,10 @@ class TestFortumAPIClient:
         )
 
         with (
+            patch(
+                "custom_components.fortum.api.client.dt_util.utcnow",
+                return_value=datetime.fromisoformat("2026-03-18T00:00:00+00:00"),
+            ),
             patch.object(
                 client,
                 "get_time_series_data",
@@ -1504,6 +1508,142 @@ class TestFortumAPIClient:
 
         assert kwargs["from_date"] == expected_from
         assert kwargs["to_date"] == expected_to
+
+    async def test_record_hourly_data_stats_filters_rows_to_sync_window(
+        self,
+        mock_hass,
+        mock_auth_client,
+    ) -> None:
+        """Hourly stats import should process only rows in [from_date, to_date)."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        from_date = datetime.fromisoformat("2026-03-10T06:00:00+00:00")
+        to_date = datetime.fromisoformat("2026-03-10T08:00:00+00:00")
+
+        time_series = TimeSeries(
+            delivery_site_category="CONSUMPTION",
+            measurement_unit="kWh",
+            metering_point_no="6094111",
+            price_unit="c/kWh",
+            cost_unit="EUR",
+            temperature_unit="celsius",
+            series=[
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-10T05:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=1.0, type="ENERGY")],
+                    cost=[
+                        CostDataPoint(
+                            total=0.5,
+                            value=0.5,
+                            type="COST_SALES_ELECTRICITY",
+                        )
+                    ],
+                    price=Price(
+                        total=1.0,
+                        value=0.8,
+                        vat_amount=0.2,
+                        vat_percentage=25,
+                    ),
+                    temperature_reading=None,
+                ),
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-10T06:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=2.0, type="ENERGY")],
+                    cost=[
+                        CostDataPoint(
+                            total=1.5,
+                            value=1.5,
+                            type="COST_SALES_ELECTRICITY",
+                        )
+                    ],
+                    price=Price(
+                        total=1.1,
+                        value=0.9,
+                        vat_amount=0.2,
+                        vat_percentage=25,
+                    ),
+                    temperature_reading=None,
+                ),
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-10T07:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=3.0, type="ENERGY")],
+                    cost=[
+                        CostDataPoint(
+                            total=2.5,
+                            value=2.5,
+                            type="COST_SALES_ELECTRICITY",
+                        )
+                    ],
+                    price=Price(
+                        total=1.2,
+                        value=1.0,
+                        vat_amount=0.2,
+                        vat_percentage=25,
+                    ),
+                    temperature_reading=None,
+                ),
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-10T08:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=4.0, type="ENERGY")],
+                    cost=[
+                        CostDataPoint(
+                            total=3.5,
+                            value=3.5,
+                            type="COST_SALES_ELECTRICITY",
+                        )
+                    ],
+                    price=Price(
+                        total=1.3,
+                        value=1.1,
+                        vat_amount=0.2,
+                        vat_percentage=25,
+                    ),
+                    temperature_reading=None,
+                ),
+            ],
+        )
+
+        added_rows: dict[str, list[dict[str, Any]]] = {}
+        base_sum_calls: list[tuple[str, datetime]] = []
+
+        def _fake_add_external_statistics(_hass, metadata, rows):
+            sid = metadata["statistic_id"]
+            added_rows[sid] = [dict(row) for row in rows]
+
+        async def _base_sum(statistic_id: str, hour: datetime) -> float:
+            base_sum_calls.append((statistic_id, hour))
+            return 10.0
+
+        with (
+            patch.object(client, "get_time_series_data", return_value=[time_series]),
+            patch.object(
+                client,
+                "_get_hourly_stat_sum_before_hour",
+                side_effect=_base_sum,
+            ),
+            patch(
+                "custom_components.fortum.api.client.async_add_external_statistics",
+                side_effect=_fake_add_external_statistics,
+            ),
+        ):
+            imported = await client._record_hourly_data_stats(
+                "6094111",
+                from_date,
+                to_date,
+            )
+
+        consumption_sid = client._build_consumption_statistic_id("6094111")
+        cost_sid = client._build_cost_statistic_id("6094111")
+
+        assert imported == 6
+        assert [row["start"] for row in added_rows[consumption_sid]] == [
+            datetime.fromisoformat("2026-03-10T06:00:00+00:00"),
+            datetime.fromisoformat("2026-03-10T07:00:00+00:00"),
+        ]
+        assert [row["start"] for row in added_rows[cost_sid]] == [
+            datetime.fromisoformat("2026-03-10T06:00:00+00:00"),
+            datetime.fromisoformat("2026-03-10T07:00:00+00:00"),
+        ]
+        assert all(call[1] == from_date for call in base_sum_calls)
 
     async def test_record_hourly_data_stats_with_sparse_data(
         self,

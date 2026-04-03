@@ -624,6 +624,16 @@ class FortumAPIClient:
         )
 
         imported_points = 0
+        sync_start = dt_util.as_utc(from_date).replace(
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        sync_end = dt_util.as_utc(to_date).replace(
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
         earliest_available_hour: datetime | None = None
         latest_available_hour: datetime | None = None
         for time_series in time_series_list:
@@ -680,6 +690,9 @@ class FortumAPIClient:
                     second=0,
                     microsecond=0,
                 )
+
+                if point_time < sync_start or point_time >= sync_end:
+                    continue
 
                 if point.price is None:
                     continue
@@ -742,7 +755,7 @@ class FortumAPIClient:
             if consumption_statistics:
                 consumption_sum = await self._get_hourly_stat_sum_before_hour(
                     consumption_statistic_id,
-                    consumption_statistics[0]["start"],
+                    sync_start,
                 )
                 for row in consumption_statistics:
                     state_value = row["state"]
@@ -752,7 +765,7 @@ class FortumAPIClient:
             if cost_statistics:
                 cost_sum = await self._get_hourly_stat_sum_before_hour(
                     cost_statistic_id,
-                    cost_statistics[0]["start"],
+                    sync_start,
                 )
                 for row in cost_statistics:
                     state_value = row["state"]
