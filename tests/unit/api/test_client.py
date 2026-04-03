@@ -1473,6 +1473,219 @@ class TestFortumAPIClient:
         assert metadata_by_sid[hourly_consumption_sid]["unit_class"] == "energy"
         assert metadata_by_sid[hourly_cost_sid]["has_sum"] is True
 
+    async def test_gap_backfill_rewrites_tail_from_first_missing_hour(
+        self, mock_hass, mock_auth_client
+    ):
+        """Gap backfill should keep polling missing hour and rewrite tail sums."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        now = datetime.fromisoformat("2026-03-18T00:00:00+00:00")
+        start_hour = datetime.fromisoformat("2026-03-04T00:00:00+00:00")
+        gap_start = datetime.fromisoformat("2026-03-04T10:00:00+00:00")
+        final_hour = datetime.fromisoformat("2026-03-05T15:00:00+00:00")
+
+        hourly_consumption_sid = client._build_consumption_statistic_id("6094111")
+        hourly_cost_sid = client._build_cost_statistic_id("6094111")
+        import_store: dict[str, list[dict[str, float | datetime]]] = {
+            hourly_consumption_sid: [],
+            hourly_cost_sid: [],
+        }
+
+        # Seed existing recorder rows: present block, then multi-day gap,
+        # then sparse tail.
+        for offset in range(10):
+            hour = start_hour + timedelta(hours=offset)
+            import_store[hourly_consumption_sid].append(
+                {"start": hour, "state": 1.0, "sum": float(offset + 1)}
+            )
+            import_store[hourly_cost_sid].append(
+                {"start": hour, "state": 0.5, "sum": float(offset + 1) * 0.5}
+            )
+
+        for offset in range(34, 40):
+            hour = start_hour + timedelta(hours=offset)
+            import_store[hourly_consumption_sid].append(
+                {"start": hour, "state": 1.0, "sum": float(offset - 23)}
+            )
+            import_store[hourly_cost_sid].append(
+                {"start": hour, "state": 0.5, "sum": float(offset - 23) * 0.5}
+            )
+
+        for sid in (hourly_consumption_sid, hourly_cost_sid):
+            import_store[sid] = sorted(import_store[sid], key=lambda row: row["start"])
+
+        def _build_series(*, fill_all_after: datetime) -> TimeSeries:
+            points: list[TimeSeriesDataPoint] = []
+            hour = gap_start
+            while hour <= final_hour:
+                should_fill = hour >= fill_all_after or hour == gap_start
+                points.append(
+                    TimeSeriesDataPoint(
+                        at_utc=hour,
+                        energy=[EnergyDataPoint(value=2.0, type="ENERGY")],
+                        cost=[
+                            CostDataPoint(
+                                total=1.0,
+                                value=1.0,
+                                type="COST_SALES_ELECTRICITY",
+                            )
+                        ]
+                        if should_fill
+                        else None,
+                        price=Price(
+                            total=1.0,
+                            value=0.8,
+                            vat_amount=0.2,
+                            vat_percentage=25,
+                        )
+                        if should_fill
+                        else None,
+                        temperature_reading=None,
+                    )
+                )
+                hour += timedelta(hours=1)
+
+            return TimeSeries(
+                delivery_site_category="CONSUMPTION",
+                measurement_unit="kWh",
+                metering_point_no="6094111",
+                price_unit="c/kWh",
+                cost_unit="EUR",
+                temperature_unit="celsius",
+                series=points,
+            )
+
+        series_run_one = _build_series(
+            fill_all_after=datetime.fromisoformat("2026-03-05T09:00:00+00:00")
+        )
+        series_run_two = _build_series(fill_all_after=gap_start + timedelta(hours=1))
+
+        seed_calls: list[tuple[str, datetime]] = []
+
+        def _seed_sum(statistic_id: str, hour: datetime) -> float:
+            seed_calls.append((statistic_id, hour))
+            previous_hour = hour - timedelta(hours=1)
+            rows = import_store.get(statistic_id, [])
+            for row in rows:
+                if row["start"] == previous_hour:
+                    return float(cast("float", row["sum"]))
+            return 0.0
+
+        async def _find_first_missing(
+            _metering_point_no: str,
+            window_start: datetime,
+            window_end: datetime,
+        ) -> datetime | None:
+            rows = import_store[hourly_cost_sid]
+            hours = {
+                cast("datetime", row["start"])
+                for row in rows
+                if window_start <= cast("datetime", row["start"]) < window_end
+            }
+            if not hours:
+                return None
+            cursor = min(hours)
+            while cursor < window_end:
+                if cursor not in hours:
+                    return cursor
+                cursor += timedelta(hours=1)
+            return window_end
+
+        def _fake_add_external_statistics(_hass, metadata, rows):
+            sid = metadata["statistic_id"]
+            if sid not in import_store:
+                return
+            existing_by_hour = {row["start"]: row for row in import_store[sid]}
+            for row in rows:
+                existing_by_hour[row["start"]] = {
+                    "start": row["start"],
+                    "state": float(row["state"]),
+                    "sum": float(cast("float", row.get("sum", 0.0))),
+                }
+            import_store[sid] = sorted(
+                existing_by_hour.values(), key=lambda item: item["start"]
+            )
+
+        with (
+            patch(
+                "custom_components.fortum.api.client.dt_util.utcnow",
+                return_value=now,
+            ),
+            patch.object(
+                client,
+                "get_time_series_data",
+                side_effect=[[series_run_one], [series_run_two]],
+            ),
+            patch.object(
+                client,
+                "_get_hourly_stat_sum_before_hour",
+                side_effect=_seed_sum,
+            ),
+            patch.object(
+                client,
+                "_find_first_missing_cost_stat_hour",
+                side_effect=_find_first_missing,
+            ),
+            patch(
+                "custom_components.fortum.api.client.async_add_external_statistics",
+                side_effect=_fake_add_external_statistics,
+            ),
+        ):
+            await client.sync_hourly_data_for_metering_points(
+                (MeteringPoint(metering_point_no="6094111"),)
+            )
+            await client.sync_hourly_data_for_metering_points(
+                (MeteringPoint(metering_point_no="6094111"),)
+            )
+
+        assert [hour for _, hour in seed_calls[:4]] == [
+            datetime.fromisoformat("2026-03-04T10:00:00+00:00"),
+            datetime.fromisoformat("2026-03-04T10:00:00+00:00"),
+            datetime.fromisoformat("2026-03-04T11:00:00+00:00"),
+            datetime.fromisoformat("2026-03-04T11:00:00+00:00"),
+        ]
+
+        consumption_by_hour = {
+            cast("datetime", row["start"]): row
+            for row in import_store[hourly_consumption_sid]
+        }
+        cost_by_hour = {
+            cast("datetime", row["start"]): row for row in import_store[hourly_cost_sid]
+        }
+
+        assert (
+            consumption_by_hour[datetime.fromisoformat("2026-03-04T10:00:00+00:00")][
+                "sum"
+            ]
+            == 12.0
+        )
+        assert (
+            consumption_by_hour[datetime.fromisoformat("2026-03-04T11:00:00+00:00")][
+                "sum"
+            ]
+            == 14.0
+        )
+        assert (
+            consumption_by_hour[datetime.fromisoformat("2026-03-05T10:00:00+00:00")][
+                "sum"
+            ]
+            == 60.0
+        )
+        assert (
+            consumption_by_hour[datetime.fromisoformat("2026-03-05T15:00:00+00:00")][
+                "sum"
+            ]
+            == 70.0
+        )
+
+        assert (
+            cost_by_hour[datetime.fromisoformat("2026-03-04T10:00:00+00:00")]["sum"]
+            == 6.0
+        )
+        assert (
+            cost_by_hour[datetime.fromisoformat("2026-03-05T15:00:00+00:00")]["sum"]
+            == 35.0
+        )
+
     async def test_record_hourly_data_stats_uses_day_aligned_request_window(
         self,
         mock_hass,
