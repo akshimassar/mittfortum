@@ -835,8 +835,8 @@ class TestFortumAPIClient:
         with (
             patch.object(
                 client,
-                "_find_last_recorded_cost_stat_hour",
-                return_value=two_weeks_ago + timedelta(hours=1),
+                "_find_first_missing_cost_stat_hour",
+                return_value=two_weeks_ago + timedelta(hours=2),
             ),
             patch.object(
                 client,
@@ -856,6 +856,85 @@ class TestFortumAPIClient:
         assert mock_sync_forward.call_count == 1
         sync_start = mock_sync_forward.call_args.args[1]
         assert sync_start == two_weeks_ago + timedelta(hours=2)
+
+    async def test_find_first_missing_cost_stat_hour_returns_none_without_coverage(
+        self, mock_hass, mock_auth_client
+    ):
+        """First missing helper should return None when no hours are recorded."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        recorder_instance = Mock()
+        recorder_instance.async_add_executor_job = AsyncMock(
+            return_value={"fortum:hourly_cost_6094111": []}
+        )
+
+        with patch(
+            "custom_components.fortum.api.client.get_instance",
+            return_value=recorder_instance,
+        ):
+            first_missing = await client._find_first_missing_cost_stat_hour(
+                "6094111",
+                datetime.fromisoformat("2026-03-17T22:00:00+00:00"),
+                datetime.fromisoformat("2026-03-18T00:00:00+00:00"),
+            )
+
+        assert first_missing is None
+
+    async def test_find_first_missing_cost_stat_hour_returns_to_date_when_contiguous(
+        self, mock_hass, mock_auth_client
+    ):
+        """First missing helper should return to_date for contiguous coverage."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        from_date = datetime.fromisoformat("2026-03-17T22:00:00+00:00")
+        to_date = datetime.fromisoformat("2026-03-18T01:00:00+00:00")
+        recorder_instance = Mock()
+        recorder_instance.async_add_executor_job = AsyncMock(
+            return_value={
+                "fortum:hourly_cost_6094111": [
+                    {"start": "2026-03-17T22:00:00+00:00", "sum": 1.0},
+                    {"start": "2026-03-17T23:00:00+00:00", "sum": 2.0},
+                    {"start": "2026-03-18T00:00:00+00:00", "sum": 3.0},
+                ]
+            }
+        )
+
+        with patch(
+            "custom_components.fortum.api.client.get_instance",
+            return_value=recorder_instance,
+        ):
+            first_missing = await client._find_first_missing_cost_stat_hour(
+                "6094111",
+                from_date,
+                to_date,
+            )
+
+        assert first_missing == to_date
+
+    async def test_find_first_missing_cost_stat_hour_returns_first_gap(
+        self, mock_hass, mock_auth_client
+    ):
+        """First missing helper should return earliest missing covered hour."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        recorder_instance = Mock()
+        recorder_instance.async_add_executor_job = AsyncMock(
+            return_value={
+                "fortum:hourly_cost_6094111": [
+                    {"start": "2026-03-17T22:00:00+00:00", "sum": 1.0},
+                    {"start": "2026-03-18T00:00:00+00:00", "sum": 2.0},
+                ]
+            }
+        )
+
+        with patch(
+            "custom_components.fortum.api.client.get_instance",
+            return_value=recorder_instance,
+        ):
+            first_missing = await client._find_first_missing_cost_stat_hour(
+                "6094111",
+                datetime.fromisoformat("2026-03-17T22:00:00+00:00"),
+                datetime.fromisoformat("2026-03-18T02:00:00+00:00"),
+            )
+
+        assert first_missing == datetime.fromisoformat("2026-03-17T23:00:00+00:00")
 
     async def test_find_last_recorded_cost_stat_hour_parses_string_timestamp(
         self, mock_hass, mock_auth_client
@@ -948,10 +1027,17 @@ class TestFortumAPIClient:
         two_weeks_ago = datetime.fromisoformat("2026-03-04T00:00:00+00:00")
         now = datetime.fromisoformat("2026-03-18T00:00:00+00:00")
 
-        with patch.object(
-            client,
-            "_find_last_recorded_cost_stat_hour",
-            return_value=None,
+        with (
+            patch.object(
+                client,
+                "_find_first_missing_cost_stat_hour",
+                return_value=None,
+            ),
+            patch.object(
+                client,
+                "_find_last_recorded_cost_stat_hour",
+                return_value=None,
+            ),
         ):
             start, historical = await client._determine_hourly_data_sync_start(
                 "6094111",
@@ -971,11 +1057,18 @@ class TestFortumAPIClient:
         now = datetime.fromisoformat("2026-03-18T00:00:00+00:00")
         fallback_last_hour = datetime.fromisoformat("2025-12-31T23:00:00+00:00")
 
-        with patch.object(
-            client,
-            "_find_last_recorded_cost_stat_hour",
-            side_effect=[None, fallback_last_hour],
-        ) as mock_find_last:
+        with (
+            patch.object(
+                client,
+                "_find_first_missing_cost_stat_hour",
+                return_value=None,
+            ),
+            patch.object(
+                client,
+                "_find_last_recorded_cost_stat_hour",
+                side_effect=[None, fallback_last_hour],
+            ) as mock_find_last,
+        ):
             start, historical = await client._determine_hourly_data_sync_start(
                 "6094111",
                 two_weeks_ago,
@@ -985,14 +1078,14 @@ class TestFortumAPIClient:
         assert start == datetime.fromisoformat("2026-01-01T00:00:00+00:00")
         assert historical is True
         assert mock_find_last.call_count == 2
-        assert mock_find_last.call_args_list[1].args[1] == datetime.fromisoformat(
+        assert mock_find_last.call_args_list[0].args[1] == datetime.fromisoformat(
             "2021-03-19T00:00:00+00:00"
         )
 
-    async def test_recent_sync_stops_after_missing_price_gap(
+    async def test_recent_sync_continues_after_missing_price_gap(
         self, mock_hass, mock_auth_client
     ):
-        """Recent-window sync stops when price reappears after a missing gap."""
+        """Recent-window sync continues when price reappears after a gap."""
         client = FortumAPIClient(mock_hass, mock_auth_client)
 
         time_series = TimeSeries(
@@ -1064,17 +1157,144 @@ class TestFortumAPIClient:
             patch(
                 "custom_components.fortum.api.client.async_add_external_statistics"
             ) as mock_add_stats,
-            patch("custom_components.fortum.api.client._LOGGER.warning") as mock_warn,
         ):
             imported = await client.sync_hourly_data_for_metering_points(
                 (MeteringPoint(metering_point_no="6094111"),)
             )
 
-        assert imported == 3
+        assert imported == 6
         assert mock_add_stats.call_count == 3
         for call in mock_add_stats.call_args_list:
-            assert len(call.args[2]) == 1
-        mock_warn.assert_called_once()
+            assert len(call.args[2]) == 2
+
+    def test_summarize_price_gaps_formats_one_line_runs(
+        self, mock_hass, mock_auth_client
+    ):
+        """Gap summary should use UTC start hour and run-length format."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        time_series = TimeSeries(
+            delivery_site_category="CONSUMPTION",
+            measurement_unit="kWh",
+            metering_point_no="6094111",
+            price_unit="c/kWh",
+            cost_unit="EUR",
+            temperature_unit="celsius",
+            series=[
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-30T20:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=1.0, type="ENERGY")],
+                    cost=None,
+                    price=Price(
+                        total=1.2,
+                        value=1.0,
+                        vat_amount=0.2,
+                        vat_percentage=25.0,
+                    ),
+                    temperature_reading=None,
+                ),
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-30T21:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=1.0, type="ENERGY")],
+                    cost=None,
+                    price=None,
+                    temperature_reading=None,
+                ),
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-30T22:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=1.0, type="ENERGY")],
+                    cost=None,
+                    price=None,
+                    temperature_reading=None,
+                ),
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-30T23:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=1.0, type="ENERGY")],
+                    cost=None,
+                    price=Price(
+                        total=1.4,
+                        value=1.1,
+                        vat_amount=0.3,
+                        vat_percentage=25.0,
+                    ),
+                    temperature_reading=None,
+                ),
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-31T00:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=1.0, type="ENERGY")],
+                    cost=None,
+                    price=Price(
+                        total=1.5,
+                        value=1.2,
+                        vat_amount=0.3,
+                        vat_percentage=25.0,
+                    ),
+                    temperature_reading=None,
+                ),
+            ],
+        )
+
+        summary = client._summarize_price_gaps(
+            sorted(time_series.series, key=lambda point: point.at_utc)
+        )
+
+        assert summary == "2026-03-30 21:00 2h missing, 2026-03-30 23:00 2h present"
+
+    def test_summarize_price_gaps_includes_trailing_missing_run(
+        self, mock_hass, mock_auth_client
+    ):
+        """Gap summary should include trailing missing interval at end."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        points = [
+            TimeSeriesDataPoint(
+                at_utc=datetime.fromisoformat("2026-03-30T20:00:00+00:00"),
+                energy=[EnergyDataPoint(value=1.0, type="ENERGY")],
+                cost=None,
+                price=Price(total=1.2, value=1.0, vat_amount=0.2, vat_percentage=25.0),
+                temperature_reading=None,
+            ),
+            TimeSeriesDataPoint(
+                at_utc=datetime.fromisoformat("2026-03-30T21:00:00+00:00"),
+                energy=[EnergyDataPoint(value=1.0, type="ENERGY")],
+                cost=None,
+                price=None,
+                temperature_reading=None,
+            ),
+            TimeSeriesDataPoint(
+                at_utc=datetime.fromisoformat("2026-03-30T22:00:00+00:00"),
+                energy=[EnergyDataPoint(value=1.0, type="ENERGY")],
+                cost=None,
+                price=None,
+                temperature_reading=None,
+            ),
+            TimeSeriesDataPoint(
+                at_utc=datetime.fromisoformat("2026-03-30T23:00:00+00:00"),
+                energy=[EnergyDataPoint(value=1.0, type="ENERGY")],
+                cost=None,
+                price=Price(total=1.4, value=1.1, vat_amount=0.3, vat_percentage=25.0),
+                temperature_reading=None,
+            ),
+            TimeSeriesDataPoint(
+                at_utc=datetime.fromisoformat("2026-03-31T00:00:00+00:00"),
+                energy=[EnergyDataPoint(value=1.0, type="ENERGY")],
+                cost=None,
+                price=None,
+                temperature_reading=None,
+            ),
+            TimeSeriesDataPoint(
+                at_utc=datetime.fromisoformat("2026-03-31T01:00:00+00:00"),
+                energy=[EnergyDataPoint(value=1.0, type="ENERGY")],
+                cost=None,
+                price=None,
+                temperature_reading=None,
+            ),
+        ]
+
+        summary = client._summarize_price_gaps(points)
+
+        assert summary == (
+            "2026-03-30 21:00 2h missing, 2026-03-30 23:00 1h present, "
+            "2026-03-31 00:00 2h missing"
+        )
 
     async def test_clear_hourly_statistics_for_topology_clears_all_statistic_ids(
         self, mock_hass, mock_auth_client
@@ -1229,19 +1449,16 @@ class TestFortumAPIClient:
                 "6094111",
                 from_date,
                 to_date,
-                continue_after_missing=False,
             )
             await client._record_hourly_data_stats(
                 "6094111",
                 from_date,
                 to_date,
-                continue_after_missing=False,
             )
             await client._record_hourly_data_stats(
                 "6094111",
                 from_date,
                 to_date,
-                continue_after_missing=False,
             )
 
         last_hourly_consumption = import_store[hourly_consumption_sid][-1]
@@ -1272,7 +1489,6 @@ class TestFortumAPIClient:
                 "6094111",
                 from_date,
                 to_date,
-                continue_after_missing=False,
             )
 
         kwargs = mock_get_series.call_args.kwargs
@@ -1328,7 +1544,6 @@ class TestFortumAPIClient:
                 "6094111",
                 from_date,
                 to_date,
-                continue_after_missing=False,
             )
 
         assert imported == 0
@@ -1383,13 +1598,11 @@ class TestFortumAPIClient:
                 "6094111",
                 from_date,
                 to_date,
-                continue_after_missing=False,
             )
             await client._record_hourly_data_stats(
                 "6094111",
                 from_date,
                 to_date,
-                continue_after_missing=False,
             )
 
         assert mock_add_stats.call_count == 3

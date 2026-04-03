@@ -35,7 +35,13 @@ from ..exceptions import (
     InvalidResponseError,
     UnexpectedStatusCodeError,
 )
-from ..models import CustomerDetails, MeteringPoint, SpotPricePoint, TimeSeries
+from ..models import (
+    CustomerDetails,
+    MeteringPoint,
+    SpotPricePoint,
+    TimeSeries,
+    TimeSeriesDataPoint,
+)
 from .endpoints import APIEndpoints
 
 if TYPE_CHECKING:
@@ -69,9 +75,9 @@ def _fmt_day(value: datetime) -> str:
     return dt_util.as_utc(value).date().isoformat()
 
 
-def _fmt_hour(value: datetime) -> str:
-    """Format datetime for concise hour-level logs."""
-    return dt_util.as_utc(value).replace(minute=0, second=0, microsecond=0).isoformat()
+def _fmt_utc_minute(value: datetime) -> str:
+    """Format datetime in UTC minute precision for logs."""
+    return dt_util.as_utc(value).strftime("%Y-%m-%d %H:%M")
 
 
 class FortumAPIClient:
@@ -287,7 +293,6 @@ class FortumAPIClient:
                     metering_point_no,
                     sync_start,
                     utc_now,
-                    continue_after_missing=historical,
                     chunk_days=chunk_days,
                 )
 
@@ -343,7 +348,6 @@ class FortumAPIClient:
         range_start: datetime,
         range_end: datetime,
         *,
-        continue_after_missing: bool,
         chunk_days: int = HOURLY_DATA_RECENT_WINDOW_DAYS,
     ) -> int:
         """Sync hourly data from oldest to newest in chunk_days windows."""
@@ -363,7 +367,6 @@ class FortumAPIClient:
                 metering_point_no,
                 window_start,
                 window_end,
-                continue_after_missing=continue_after_missing,
             )
             imported_points += imported_in_window
             window_start = next_window_start
@@ -375,15 +378,12 @@ class FortumAPIClient:
         metering_point_no: str,
         chunk_start: datetime,
         range_end: datetime,
-        *,
-        continue_after_missing: bool,
     ) -> tuple[datetime, int]:
         """Sync one up-to-two-weeks hourly-data chunk and return next start."""
         imported = await self._record_hourly_data_stats(
             metering_point_no,
             chunk_start,
             range_end,
-            continue_after_missing=continue_after_missing,
         )
         return range_end, imported
 
@@ -394,27 +394,29 @@ class FortumAPIClient:
         now: datetime,
     ) -> tuple[datetime, bool]:
         """Determine hourly-data sync start and whether historical mode is needed."""
-        last_recorded_hour = await self._find_last_recorded_cost_stat_hour(
+        first_missing_hour = await self._find_first_missing_cost_stat_hour(
             metering_point_no,
             two_weeks_ago,
             now,
         )
-        recent_window_has_stats = last_recorded_hour is not None
-        if last_recorded_hour is None:
-            for years in (5, 10, 20):
-                lookback_start = now - timedelta(days=365 * years)
-                last_recorded_hour = await self._find_last_recorded_cost_stat_hour(
-                    metering_point_no,
-                    lookback_start,
-                    now,
-                )
-                if last_recorded_hour is not None:
-                    break
+        if first_missing_hour is not None:
+            return first_missing_hour, False
+
+        last_recorded_hour: datetime | None = None
+        for years in (5, 10, 20):
+            lookback_start = now - timedelta(days=365 * years)
+            last_recorded_hour = await self._find_last_recorded_cost_stat_hour(
+                metering_point_no,
+                lookback_start,
+                now,
+            )
+            if last_recorded_hour is not None:
+                break
 
         if last_recorded_hour is None:
             earliest = self._earliest_available_by_metering_point.get(metering_point_no)
             if earliest is None:
-                _LOGGER.info(
+                _LOGGER.warning(
                     "no cost statistics in [%s, %s) for %s and earliest hour is "
                     "unknown; starting from two_weeks_ago",
                     two_weeks_ago.isoformat(),
@@ -437,15 +439,15 @@ class FortumAPIClient:
         if next_hour >= now:
             return now, False
 
-        return next_hour, not recent_window_has_stats
+        return next_hour, True
 
-    async def _find_last_recorded_cost_stat_hour(
+    async def _get_recorded_cost_stat_hours(
         self,
         metering_point_no: str,
         from_date: datetime,
         to_date: datetime,
-    ) -> datetime | None:
-        """Return latest recorded cost-stat hour in [from_date, to_date)."""
+    ) -> set[datetime]:
+        """Return normalized recorded hourly starts for cost stats in range."""
         statistic_id = self._build_cost_statistic_id(metering_point_no)
         try:
             result = await get_instance(self._hass).async_add_executor_job(
@@ -465,21 +467,64 @@ class FortumAPIClient:
                 statistic_id,
                 exc,
             )
-            return None
+            return set()
 
         rows = result.get(statistic_id) if result else None
         if not rows:
-            return None
+            return set()
 
-        latest_hour: datetime | None = None
+        recorded_hours: set[datetime] = set()
         for row in rows:
             start = self._parse_stat_start(row.get("start"))
             if start is None:
                 continue
-            if latest_hour is None or start > latest_hour:
-                latest_hour = start
+            if from_date <= start < to_date:
+                recorded_hours.add(start)
+        return recorded_hours
 
-        return latest_hour
+    async def _find_last_recorded_cost_stat_hour(
+        self,
+        metering_point_no: str,
+        from_date: datetime,
+        to_date: datetime,
+    ) -> datetime | None:
+        """Return latest recorded cost-stat hour in [from_date, to_date)."""
+        recorded_hours = await self._get_recorded_cost_stat_hours(
+            metering_point_no,
+            from_date,
+            to_date,
+        )
+        if not recorded_hours:
+            return None
+
+        return max(recorded_hours)
+
+    async def _find_first_missing_cost_stat_hour(
+        self,
+        metering_point_no: str,
+        from_date: datetime,
+        to_date: datetime,
+    ) -> datetime | None:
+        """Return first missing hour or to_date when contiguous.
+
+        Returns None only when there are no recorded hours in range.
+        """
+        recorded_hours = await self._get_recorded_cost_stat_hours(
+            metering_point_no,
+            from_date,
+            to_date,
+        )
+        if not recorded_hours:
+            return None
+
+        first_present = min(recorded_hours)
+        cursor = first_present
+        while cursor < to_date:
+            if cursor not in recorded_hours:
+                return cursor
+            cursor += timedelta(hours=1)
+
+        return to_date
 
     @staticmethod
     def _parse_stat_start(start_raw: Any) -> datetime | None:
@@ -547,8 +592,6 @@ class FortumAPIClient:
         metering_point_no: str,
         from_date: datetime,
         to_date: datetime,
-        *,
-        continue_after_missing: bool,
     ) -> int:
         """Fetch hourly data and push derived statistics to HA recorder."""
         local_tz = ZoneInfo(self._endpoints.profile.timezone)
@@ -603,8 +646,15 @@ class FortumAPIClient:
             cost_statistics: list[_MutableStatisticRow] = []
             price_statistics: list[_MutableStatisticRow] = []
             temperature_statistics: list[_MutableStatisticRow] = []
-            first_missing_price_at: datetime | None = None
             ordered_points = sorted(time_series.series, key=lambda item: item.at_utc)
+            gap_summary = self._summarize_price_gaps(ordered_points)
+            if gap_summary is not None:
+                _LOGGER.warning(
+                    "gap in stats for %s: %s",
+                    time_series.metering_point_no,
+                    gap_summary,
+                )
+
             if ordered_points:
                 series_start = dt_util.as_utc(ordered_points[0].at_utc).replace(
                     minute=0,
@@ -632,30 +682,7 @@ class FortumAPIClient:
                 )
 
                 if point.price is None:
-                    if first_missing_price_at is None:
-                        first_missing_price_at = point_time
                     continue
-
-                if first_missing_price_at is not None:
-                    if continue_after_missing:
-                        _LOGGER.warning(
-                            "gap in stats for %s: %s -> %s; continuing",
-                            time_series.metering_point_no,
-                            first_missing_price_at.isoformat(),
-                            point_time.isoformat(),
-                        )
-                        first_missing_price_at = None
-                    else:
-                        _LOGGER.warning(
-                            (
-                                "gap in stats for %s: %s -> %s; "
-                                "skipping remaining points in window"
-                            ),
-                            time_series.metering_point_no,
-                            first_missing_price_at.isoformat(),
-                            point_time.isoformat(),
-                        )
-                        break
 
                 consumption_value = float(point.total_energy)
                 consumption_statistics.append(
@@ -898,6 +925,57 @@ class FortumAPIClient:
         )
 
         return imported_points
+
+    @staticmethod
+    def _summarize_price_gaps(
+        ordered_points: list[TimeSeriesDataPoint],
+    ) -> str | None:
+        """Return one-line summary of price-gap runs in API response."""
+        if not ordered_points:
+            return None
+
+        runs: list[tuple[datetime, int, bool]] = []
+        run_start = dt_util.as_utc(ordered_points[0].at_utc).replace(
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        run_missing = ordered_points[0].price is None
+        run_hours = 1
+        previous_time = run_start
+
+        for point in ordered_points[1:]:
+            point_time = dt_util.as_utc(point.at_utc).replace(
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
+            point_missing = point.price is None
+            contiguous = point_time == previous_time + timedelta(hours=1)
+            if contiguous and point_missing == run_missing:
+                run_hours += 1
+            else:
+                runs.append((run_start, run_hours, run_missing))
+                run_start = point_time
+                run_missing = point_missing
+                run_hours = 1
+            previous_time = point_time
+
+        runs.append((run_start, run_hours, run_missing))
+
+        first_missing_index = next(
+            (idx for idx, (_, _, is_missing) in enumerate(runs) if is_missing),
+            None,
+        )
+        if first_missing_index is None:
+            return None
+
+        summary_parts = []
+        for start, hours, is_missing in runs[first_missing_index:]:
+            state = "missing" if is_missing else "present"
+            summary_parts.append(f"{_fmt_utc_minute(start)} {hours}h {state}")
+
+        return ", ".join(summary_parts)
 
     def _record_earliest_available_marker(
         self,
