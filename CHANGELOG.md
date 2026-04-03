@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [4.3.4]
+
+### Changed
+- Refined backend logging levels to reduce noisy retry logs during normal operation.
+- Improved availability diagnostics by logging session/API availability transitions more clearly.
+
 ## [4.3.3]
 
 ### Changed
