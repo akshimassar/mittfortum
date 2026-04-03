@@ -24,7 +24,7 @@ Please run the reproduction using region `fi` in the integration setup.
 Then attach Fortum diagnostics instead of posting raw logs:
 1. In Fortum integration options, enable **Debug logging**.
 2. Reproduce the issue with region `fi`.
-3. Go to **Integration** page in Home Assistant.
+3. Go to **Settings -> Devices & Services**.
 4. Open the Fortum integration card.
 5. Click the **three dots** menu.
 6. Select **Download diagnostics**.

@@ -22,7 +22,7 @@ Add any other context or screenshots about the feature request here.
 If the request is based on current integration behavior, you can also attach diagnostics:
 1. In Fortum integration options, enable **Debug logging**.
 2. Reproduce the current behavior.
-3. Go to **Integration** page in Home Assistant.
+3. Go to **Settings -> Devices & Services**.
 4. Open the Fortum integration card.
 5. Click the **three dots** menu.
 6. Select **Download diagnostics**.

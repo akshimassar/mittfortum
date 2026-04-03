@@ -12,7 +12,7 @@ Guidance for AI/code agents working in this repository.
 ## Repository Areas
 - Integration code: `custom_components/fortum`
 - Dashboard strategy: `custom_components/fortum/frontend/fortum-energy-strategy.js`
-- Coordinators: `custom_components/fortum/coordinators.py`
+- Coordinators: `custom_components/fortum/coordinators/`
 - Tests: `tests/unit`, `tests/integration`, `tests/e2e`
 - Contributor docs: `docs/development.md`
 - API examples doc: `docs/fortum-api.md`

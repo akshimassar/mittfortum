@@ -14,7 +14,8 @@ It reads data from the Home Assistant Energy collection and Recorder statistics.
 
 ## Strategy Options
 
-For `custom:fortum-energy` and `custom:fortum-energy-single`, Lovelace now provides a
+For `custom:fortum-energy`, `custom:fortum-energy-single`, and
+`custom:fortum-energy-multipoint`, Lovelace now provides a
 basic GUI strategy editor in dashboard edit mode. You can configure metering point,
 debug mode, and dashboard itemization without YAML.
 

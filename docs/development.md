@@ -18,12 +18,15 @@ custom_components/fortum/
 │   ├── __init__.py
 │   ├── metering_point.py    # Per-metering-point diagnostic sensor
 │   ├── price.py             # Near-real-time price sensor
-│   ├── stats_last_sync.py   # Debug-only statistics last-sync sensor
+│   ├── stats_last_sync.py   # Integration-wide statistics last-sync sensor
 │   └── tomorrow_price.py    # Tomorrow max price + timestamp sensors
+├── coordinators/            # Data update coordinators
+│   ├── __init__.py
+│   ├── hourly_consumption.py
+│   └── spot_price.py
 ├── button.py                # Debug button entities
 ├── config_flow.py           # Configuration flow and options
 ├── const.py                 # Constants and configuration
-├── coordinators.py          # Data update coordinators
 ├── device.py                # Device representation
 ├── entity.py                # Base entity class
 ├── exceptions.py            # Custom exceptions
@@ -50,7 +53,7 @@ custom_components/fortum/
 - Uses a 14-day recent window and 14-day chunks for historical catch-up.
 - Fortum API can return GraphQL errors or take over 30 seconds for larger windows (observed even around 30 days).
 
-### Token and Session Handling (`api/auth.py`, `api/client.py`, `coordinators.py`)
+### Token and Session Handling (`api/auth.py`, `api/client.py`, `coordinators/*`)
 
 The integration supports two authentication modes and handles them differently:
 
@@ -90,7 +93,7 @@ Notes:
 - `_handle_response` focuses on response parsing and exception mapping; it avoids per-attempt noisy status/error logging.
 - `_get` is the single place for retry/final-failure request logs, so callers do not need duplicate terminal error logs.
 
-#### HA signaling boundary (`coordinators.py`)
+#### HA signaling boundary (`coordinators/*`)
 
 Home Assistant auth-state signaling is done in coordinators:
 
@@ -101,7 +104,7 @@ This keeps:
 - auth/session recovery logic in auth layer,
 - HA state signaling in coordinator/update layer.
 
-### Coordinators (`coordinators.py`)
+### Coordinators (`coordinators/*`)
 - Main coordinator runs statistics sync cycle.
 - Price coordinator updates near-real-time spot prices.
 - Both coordinators map failures consistently:
@@ -109,7 +112,7 @@ This keeps:
   - `APIError` -> `UpdateFailed`
 
 ### Sensors (`sensors/*`)
-- `Statistics Last Sync` is diagnostic and only created when `Debug entities` is enabled.
+- `Statistics Last Sync` is a diagnostic sensor created for each integration entry.
 - `Tomorrow Max Price` and `Tomorrow Max Price Time` are based on tomorrow points in spot-price coordinator data and remain unavailable until tomorrow prices are published.
 - Spot-price sensors are created per area (`[AREA]` notation in entity names, area code suffix in unique IDs) and legacy non-area spot entities are removed by migration.
 

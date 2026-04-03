@@ -30,7 +30,7 @@ If applicable, add screenshots to help explain your problem.
 Please attach diagnostics for the Fortum integration:
 1. In Fortum integration options, enable **Debug logging**.
 2. Reproduce the issue.
-3. Go to **Integration** page in Home Assistant.
+3. Go to **Settings -> Devices & Services**.
 4. Open the Fortum integration card.
 5. Click the **three dots** menu.
 6. Select **Download diagnostics**.
