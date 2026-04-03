@@ -49,7 +49,6 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-MAX_FULL_BACKFILL_STEPS = 104
 CLEAR_STATISTICS_TIMEOUT_SECONDS = 60
 REQUEST_RETRY_DELAYS = (5.0, 10.0)
 
@@ -353,20 +352,9 @@ class FortumAPIClient:
 
         imported_points = 0
         window_start = range_start
-        steps = 0
         window = timedelta(days=chunk_days)
 
         while window_start < range_end:
-            if steps >= MAX_FULL_BACKFILL_STEPS:
-                _LOGGER.warning(
-                    "stopped statistics sync after %d windows for %s (start=%s end=%s)",
-                    MAX_FULL_BACKFILL_STEPS,
-                    metering_point_no,
-                    range_start.isoformat(),
-                    range_end.isoformat(),
-                )
-                break
-
             window_end = min(window_start + window, range_end)
             (
                 next_window_start,
@@ -379,7 +367,6 @@ class FortumAPIClient:
             )
             imported_points += imported_in_window
             window_start = next_window_start
-            steps += 1
 
         return imported_points
 
