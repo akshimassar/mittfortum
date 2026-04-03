@@ -68,7 +68,7 @@ class SpotPriceSyncCoordinator(DataUpdateCoordinator[list[SpotPricePoint]]):
                 monotonic() - start,
             )
         except AuthenticationError as exc:
-            _LOGGER.exception("spot price sync auth error")
+            _LOGGER.warning("spot price sync auth error: %s", exc)
             raise ConfigEntryAuthFailed("Authentication failed") from exc
         except APIError as exc:
             _LOGGER.warning("spot price sync API error: %s", exc)

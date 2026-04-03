@@ -224,18 +224,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             monotonic() - setup_started,
         )
 
-    except AuthenticationError:
-        _LOGGER.exception(
-            "setup authentication failed entry_id=%s after %.2fs",
+    except AuthenticationError as exc:
+        _LOGGER.error(
+            "setup authentication failed entry_id=%s after %.2fs: %s",
             entry.entry_id,
             monotonic() - setup_started,
+            exc,
         )
         return False
-    except FortumError:
-        _LOGGER.exception(
-            "setup failed entry_id=%s after %.2fs",
+    except FortumError as exc:
+        _LOGGER.error(
+            "setup failed entry_id=%s after %.2fs: %s",
             entry.entry_id,
             monotonic() - setup_started,
+            exc,
         )
         return False
     except Exception:
@@ -498,7 +500,7 @@ def _schedule_dashboard_strategy_dashboard_creation(
 
     config = getattr(hass, "config", None)
     if config is None or not hasattr(config, "components"):
-        _LOGGER.warning(
+        _LOGGER.info(
             "home assistant config.components unavailable; "
             "skipping dashboard creation on this start"
         )

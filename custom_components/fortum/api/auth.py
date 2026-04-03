@@ -179,7 +179,7 @@ class OAuth2AuthClient:
             return server_expires_in
 
         effective_lifetime = min(server_expires_in, FIXED_TOKEN_LIFETIME_SECONDS)
-        _LOGGER.info(
+        _LOGGER.debug(
             "force short token lifetime enabled: using %d seconds (server=%d seconds)",
             effective_lifetime,
             server_expires_in,
@@ -231,7 +231,7 @@ class OAuth2AuthClient:
                 access_token = user_data.get("accessToken", SESSION_BASED_TOKEN)
                 id_token = user_data.get("idToken", SESSION_BASED_TOKEN)
 
-                _LOGGER.info(
+                _LOGGER.debug(
                     "OAuth flow completed locale=%s auth_index=%s "
                     "cookies=%d delivery_sites=%d",
                     self._last_auth_locale or "unknown",
@@ -270,10 +270,10 @@ class OAuth2AuthClient:
         except FortumConnectionError:
             raise
         except httpx.HTTPError as exc:
-            _LOGGER.exception("authentication failed due to network error")
+            _LOGGER.warning("authentication failed due to network error: %s", exc)
             raise FortumConnectionError("Network error connecting to Fortum") from exc
         except Exception as exc:
-            _LOGGER.exception("authentication failed")
+            _LOGGER.warning("authentication failed: %s", self._format_exception(exc))
             raise AuthenticationError(f"Authentication failed: {exc}") from exc
 
     def _format_exception(self, exc: Exception) -> str:
@@ -334,7 +334,7 @@ class OAuth2AuthClient:
                     raise
 
                 sleep_for = min(delay, REAUTH_RETRY_MAX_DELAY_SECONDS)
-                _LOGGER.warning(
+                _LOGGER.info(
                     "auth attempt failed: AuthenticationError; retrying in %.1fs",
                     sleep_for,
                 )
@@ -349,7 +349,7 @@ class OAuth2AuthClient:
                     raise
 
                 sleep_for = min(delay, REAUTH_RETRY_MAX_DELAY_SECONDS)
-                _LOGGER.warning(
+                _LOGGER.info(
                     "auth attempt failed: %s; retrying in %.1fs",
                     self._format_exception(exc),
                     sleep_for,
@@ -365,7 +365,7 @@ class OAuth2AuthClient:
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         if providers_resp.status_code != 200:
-            _LOGGER.error(
+            _LOGGER.info(
                 "provider list request failed status=%d",
                 providers_resp.status_code,
             )
@@ -377,7 +377,7 @@ class OAuth2AuthClient:
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         if csrf_resp.status_code != 200:
-            _LOGGER.error(
+            _LOGGER.info(
                 "CSRF fetch failed with status=%d",
                 csrf_resp.status_code,
             )
@@ -406,7 +406,7 @@ class OAuth2AuthClient:
         )
 
         if signin_resp.status_code != 200:
-            _LOGGER.error(
+            _LOGGER.info(
                 "signin initiation failed with status=%d response=%s",
                 signin_resp.status_code,
                 self._safe_response_excerpt(signin_resp.text),
@@ -416,7 +416,7 @@ class OAuth2AuthClient:
         signin_result = signin_resp.json()
         oauth_url = signin_result.get("url")
         if not oauth_url:
-            _LOGGER.error(
+            _LOGGER.warning(
                 "signin response missing OAuth URL (keys=%s)",
                 sorted(signin_result.keys()),
             )
@@ -486,7 +486,7 @@ class OAuth2AuthClient:
                 )
 
             if init_data is None:
-                _LOGGER.error(
+                _LOGGER.warning(
                     "auth init failed for all locale/auth_index attempts %s "
                     "(last_status=%s)",
                     attempts,
@@ -503,7 +503,7 @@ class OAuth2AuthClient:
                 if success_url:
                     return success_url  # Return the successUrl to use as OAuth URL
                 else:
-                    _LOGGER.error(
+                    _LOGGER.warning(
                         "auth init response missing auth_id and success_url (keys=%s)",
                         sorted(init_data.keys()),
                     )
@@ -536,7 +536,7 @@ class OAuth2AuthClient:
             )
 
             if login_resp.status_code != 200:
-                _LOGGER.error(
+                _LOGGER.warning(
                     "SSO login failed with status=%d response=%s",
                     login_resp.status_code,
                     self._safe_response_excerpt(login_resp.text),
@@ -570,7 +570,7 @@ class OAuth2AuthClient:
 
         except Exception as exc:
             exc_text = self._format_exception(exc)
-            _LOGGER.error("SSO authentication failed: %s", exc_text)
+            _LOGGER.warning("SSO authentication failed: %s", exc_text)
             raise OAuth2Error(f"SSO authentication failed: {exc_text}") from exc
 
     def _preferred_sso_attempts(self, oauth_url: str) -> list[tuple[str, str]]:
@@ -624,7 +624,7 @@ class OAuth2AuthClient:
 
         except Exception as exc:
             exc_text = self._format_exception(exc)
-            _LOGGER.error(
+            _LOGGER.warning(
                 "OAuth authorization completion failed (oauth_url=%s): %s",
                 oauth_url_for_log,
                 exc_text,
@@ -665,7 +665,7 @@ class OAuth2AuthClient:
                 break
 
             if attempt == 1:
-                _LOGGER.warning(
+                _LOGGER.info(
                     "session user data missing on first verification attempt; "
                     "retrying with propagation backoff"
                 )
@@ -689,7 +689,7 @@ class OAuth2AuthClient:
         # since the session often takes additional time to propagate across endpoints
         validation_success = await self._validate_session_against_api(client)
         if not validation_success:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "session validation failed during authentication; "
                 "expected during propagation delay"
             )
@@ -728,7 +728,7 @@ class OAuth2AuthClient:
                             status_code=401,
                         )
 
-                    _LOGGER.error(
+                    _LOGGER.info(
                         "token refresh failed with status %d: %s",
                         response.status_code,
                         response.text,
@@ -755,7 +755,7 @@ class OAuth2AuthClient:
         except AuthenticationError:
             raise
         except Exception as exc:
-            _LOGGER.exception("token refresh failed")
+            _LOGGER.warning("token refresh failed: %s", self._format_exception(exc))
             raise AuthenticationError(f"Token refresh failed: {exc}") from exc
 
     async def _validate_session_against_api(self, client) -> bool:
@@ -772,15 +772,15 @@ class OAuth2AuthClient:
                 _LOGGER.debug("session validation against API succeeded")
                 return True
             elif response.status_code == 401:
-                _LOGGER.warning("session validation returned 401; session not ready")
+                _LOGGER.info("session validation returned 401; session not ready")
                 return False
             else:
-                _LOGGER.warning(
+                _LOGGER.info(
                     "session validation returned status %d", response.status_code
                 )
                 return False
         except Exception as exc:
-            _LOGGER.warning(
+            _LOGGER.info(
                 "session validation failed with exception: %s",
                 self._format_exception(exc),
             )
@@ -919,7 +919,7 @@ class OAuth2AuthClient:
                 await self._authenticate_with_backoff(
                     retry_forever=True,
                 )
-                _LOGGER.info("token re-authentication successful")
+                _LOGGER.debug("token re-authentication successful")
                 return
 
             refresh_delay = TOKEN_RENEWAL_RETRY_INITIAL_SECONDS
@@ -927,12 +927,12 @@ class OAuth2AuthClient:
             while self._renewal_scheduler_enabled and self.time_until_expiry() > 0:
                 try:
                     await self.refresh_access_token()
-                    _LOGGER.info("proactive token refresh succeeded")
+                    _LOGGER.debug("proactive token refresh succeeded")
                     return
                 except asyncio.CancelledError:
                     raise
                 except AuthenticationError as exc:
-                    _LOGGER.warning(
+                    _LOGGER.info(
                         "token refresh auth failed: %s; switching to re-auth",
                         exc,
                     )
@@ -942,7 +942,7 @@ class OAuth2AuthClient:
                     if remaining <= 0:
                         break
                     sleep_for = min(refresh_delay, remaining)
-                    _LOGGER.warning(
+                    _LOGGER.debug(
                         "proactive token refresh failed: %s; "
                         "retrying in %.1fs (token expires in %.1fs)",
                         exc,
@@ -955,7 +955,7 @@ class OAuth2AuthClient:
             await self._authenticate_with_backoff(
                 retry_forever=True,
             )
-            _LOGGER.info("token re-authentication successful")
+            _LOGGER.debug("token re-authentication successful")
             return
         except asyncio.CancelledError:
             raise

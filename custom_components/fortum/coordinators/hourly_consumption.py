@@ -74,7 +74,7 @@ class HourlyConsumptionSyncCoordinator(DataUpdateCoordinator[list[ConsumptionDat
         try:
             await self._async_refresh_current_month_totals(snapshot)
         except Exception as exc:
-            _LOGGER.warning("failed to refresh current-month totals: %s", exc)
+            _LOGGER.info("failed to refresh current-month totals: %s", exc)
         self.last_statistics_sync = datetime.now().astimezone()
         self.async_update_listeners()
         return imported_points
@@ -260,10 +260,10 @@ class HourlyConsumptionSyncCoordinator(DataUpdateCoordinator[list[ConsumptionDat
             data: list[ConsumptionData] = []
             await self.async_run_statistics_sync()
         except APIError as exc:
-            _LOGGER.exception("hourly sync API error")
+            _LOGGER.warning("hourly sync API error: %s", exc)
             raise UpdateFailed(f"API error: {exc}") from exc
         except AuthenticationError as exc:
-            _LOGGER.exception("hourly sync auth error")
+            _LOGGER.warning("hourly sync auth error: %s", exc)
             raise ConfigEntryAuthFailed("Authentication failed") from exc
         except UpdateFailed:
             raise

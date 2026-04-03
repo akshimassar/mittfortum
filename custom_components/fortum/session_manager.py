@@ -78,6 +78,7 @@ class SessionManager:
         self._refresh_handle: asyncio.TimerHandle | None = None
         self._refresh_task: asyncio.Task[None] | None = None
         self._sensor_platform: RuntimeEntityManagers | None = None
+        self._session_available = True
 
     def start(self) -> None:
         """Start periodic session refresh scheduling."""
@@ -158,7 +159,7 @@ class SessionManager:
     ) -> None:
         """Parse and store session payload, then reschedule refresh."""
         if self._state == STATE_STOPPED:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "ignoring session update for stopped manager entry_id=%s source=%s",
                 self._entry_id,
                 source,
@@ -203,11 +204,26 @@ class SessionManager:
         try:
             payload = await self._api_client.get_session_payload()
         except (APIError, InvalidResponseError) as exc:
-            _LOGGER.warning("session refresh failed for %s: %s", self._entry_id, exc)
+            if self._session_available:
+                _LOGGER.warning(
+                    "session became unavailable entry_id=%s: %s",
+                    self._entry_id,
+                    exc,
+                )
+                self._session_available = False
+            else:
+                _LOGGER.debug(
+                    "session still unavailable entry_id=%s: %s",
+                    self._entry_id,
+                    exc,
+                )
             self._schedule_next_refresh()
             return
 
         await self.async_update_from_payload(payload, source="scheduled")
+        if not self._session_available:
+            _LOGGER.warning("session recovered entry_id=%s", self._entry_id)
+            self._session_available = True
 
     def _schedule_next_refresh(self) -> None:
         """Schedule next session refresh at configured interval."""
@@ -247,7 +263,7 @@ class SessionManager:
             )
             return
         if self._refresh_task and not self._refresh_task.done():
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "ignoring scheduled refresh because task already running entry_id=%s",
                 self._entry_id,
             )

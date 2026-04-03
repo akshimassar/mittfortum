@@ -214,7 +214,7 @@ class TestFortumAPIClient:
                     "Server error: [GraphQL] Subgraph errors redacted"
                 ),
             ) as mock_fetch,
-            patch("custom_components.fortum.api.client._LOGGER.error") as mock_error,
+            patch("custom_components.fortum.api.client._LOGGER.info") as mock_error,
         ):
             with pytest.raises(APIError, match="Subgraph errors redacted"):
                 await client.get_time_series_data(
@@ -674,7 +674,7 @@ class TestFortumAPIClient:
             patch(
                 "custom_components.fortum.api.client.get_async_client"
             ) as mock_get_client,
-            patch("custom_components.fortum.api.client._LOGGER.error") as mock_error,
+            patch("custom_components.fortum.api.client._LOGGER.info") as mock_error,
         ):
             mock_client = AsyncMock()
             mock_client.get.return_value = Mock(status_code=500, text="error")

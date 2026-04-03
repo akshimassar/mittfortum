@@ -452,7 +452,7 @@ class TestOAuth2AuthClient:
 
         with (
             patch("custom_components.fortum.api.auth.asyncio.sleep") as mock_sleep,
-            patch("custom_components.fortum.api.auth._LOGGER.warning") as mock_warning,
+            patch("custom_components.fortum.api.auth._LOGGER.info") as mock_warning,
             patch.object(client, "_validate_session_against_api", return_value=True),
         ):
             mock_sleep.return_value = None

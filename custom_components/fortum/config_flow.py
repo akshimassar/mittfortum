@@ -77,10 +77,10 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         return {"title": f"Fortum ({data[CONF_USERNAME]})"}
 
     except AuthenticationError as exc:
-        _LOGGER.exception("authentication failed")
+        _LOGGER.info("authentication failed: %s", exc)
         raise InvalidAuth from exc
     except FortumError as exc:
-        _LOGGER.exception("API connection failed")
+        _LOGGER.info("API connection failed: %s", exc)
         raise CannotConnect from exc
     except Exception as exc:
         _LOGGER.exception("unexpected error during validation")

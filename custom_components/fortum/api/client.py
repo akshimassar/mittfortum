@@ -179,7 +179,7 @@ class FortumAPIClient:
                 request_timeout=request_timeout,
             )
         except APIError as exc:
-            _LOGGER.error(
+            _LOGGER.info(
                 "time series fetch failed: metering_point_nos=%s from=%s to=%s "
                 "resolution=%s series_type=%s error=%s",
                 metering_point_nos,
@@ -414,7 +414,7 @@ class FortumAPIClient:
         if last_recorded_hour is None:
             earliest = self._earliest_available_by_metering_point.get(metering_point_no)
             if earliest is None:
-                _LOGGER.warning(
+                _LOGGER.info(
                     "no cost statistics in [%s, %s) for %s and earliest hour is "
                     "unknown; starting from two_weeks_ago",
                     two_weeks_ago.isoformat(),
@@ -460,7 +460,7 @@ class FortumAPIClient:
                 )
             )
         except Exception as exc:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "could not read cost statistics coverage for %s: %s",
                 statistic_id,
                 exc,
@@ -523,7 +523,7 @@ class FortumAPIClient:
                 )
             )
         except Exception as exc:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "could not read previous sum for %s before %s: %s",
                 statistic_id,
                 hour.isoformat(),
@@ -1130,9 +1130,7 @@ class FortumAPIClient:
                 last_error = exc
 
         if last_error is not None:
-            _LOGGER.warning(
-                "price fetch failed area=%s error=%s", area_code, last_error
-            )
+            _LOGGER.info("price fetch failed area=%s error=%s", area_code, last_error)
             return None
 
         _LOGGER.debug(
@@ -1299,7 +1297,7 @@ class FortumAPIClient:
                     is_last_attempt = attempt == max_attempts
                     if is_last_attempt:
                         details = self._format_exception_details(exc)
-                        _LOGGER.error(
+                        _LOGGER.info(
                             "GET failed after %d/%d attempts for %s: %s",
                             attempt,
                             max_attempts,
@@ -1312,7 +1310,7 @@ class FortumAPIClient:
 
                     delay = REQUEST_RETRY_DELAYS[attempt - 1]
                     details = self._format_exception_details(exc)
-                    _LOGGER.warning(
+                    _LOGGER.debug(
                         "GET failed (attempt %d/%d), retrying in %.1fs: %s",
                         attempt,
                         max_attempts,
