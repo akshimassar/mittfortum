@@ -328,13 +328,48 @@ class OAuth2AuthClient:
                 return await self._authenticate_once()
             except asyncio.CancelledError:
                 raise
-            except AuthenticationError:
-                if not retry_forever:
+            except FortumConnectionError as exc:
+                if (
+                    not retry_forever
+                    and max_attempts is not None
+                    and attempts >= max_attempts
+                ):
                     raise
 
                 sleep_for = min(delay, REAUTH_RETRY_MAX_DELAY_SECONDS)
                 _LOGGER.info(
-                    "auth attempt failed: AuthenticationError; retrying in %.1fs",
+                    "auth attempt failed: %s; retrying in %.1fs",
+                    self._format_exception(exc),
+                    sleep_for,
+                )
+                await asyncio.sleep(sleep_for)
+                delay = min(delay * 2, REAUTH_RETRY_MAX_DELAY_SECONDS)
+            except AuthenticationError as exc:
+                if retry_forever:
+                    sleep_for = min(delay, REAUTH_RETRY_MAX_DELAY_SECONDS)
+                    _LOGGER.info(
+                        "auth attempt failed: %s; retrying in %.1fs",
+                        self._format_exception(exc),
+                        sleep_for,
+                    )
+                    await asyncio.sleep(sleep_for)
+                    delay = min(delay * 2, REAUTH_RETRY_MAX_DELAY_SECONDS)
+                    continue
+
+                if not self._is_retryable_auth_error(exc):
+                    raise
+
+                if (
+                    not retry_forever
+                    and max_attempts is not None
+                    and attempts >= max_attempts
+                ):
+                    raise
+
+                sleep_for = min(delay, REAUTH_RETRY_MAX_DELAY_SECONDS)
+                _LOGGER.info(
+                    "auth attempt failed: %s; retrying in %.1fs",
+                    self._format_exception(exc),
                     sleep_for,
                 )
                 await asyncio.sleep(sleep_for)
@@ -356,6 +391,12 @@ class OAuth2AuthClient:
                 await asyncio.sleep(sleep_for)
                 delay = min(delay * 2, REAUTH_RETRY_MAX_DELAY_SECONDS)
 
+    @staticmethod
+    def _is_retryable_auth_error(exc: AuthenticationError) -> bool:
+        """Return True when an authentication error is transient."""
+        status_code = exc.status_code
+        return status_code not in {401, 403}
+
     async def _initialize_fortum_session(self, client) -> str:
         """Initialize Fortum session and get CSRF token."""
         # Get providers
@@ -368,7 +409,10 @@ class OAuth2AuthClient:
                 "provider list request failed status=%d",
                 providers_resp.status_code,
             )
-            raise OAuth2Error(f"Providers fetch failed: {providers_resp.status_code}")
+            raise OAuth2Error(
+                f"Providers fetch failed: {providers_resp.status_code}",
+                status_code=providers_resp.status_code,
+            )
 
         # Get CSRF token
         csrf_resp = await client.get(
@@ -380,7 +424,10 @@ class OAuth2AuthClient:
                 "CSRF fetch failed with status=%d",
                 csrf_resp.status_code,
             )
-            raise OAuth2Error(f"CSRF fetch failed: {csrf_resp.status_code}")
+            raise OAuth2Error(
+                f"CSRF fetch failed: {csrf_resp.status_code}",
+                status_code=csrf_resp.status_code,
+            )
 
         csrf_data = csrf_resp.json()
         csrf_token = csrf_data.get("csrfToken")
@@ -410,7 +457,10 @@ class OAuth2AuthClient:
                 signin_resp.status_code,
                 self._safe_response_excerpt(signin_resp.text),
             )
-            raise OAuth2Error(f"Signin initiation failed: {signin_resp.status_code}")
+            raise OAuth2Error(
+                f"Signin initiation failed: {signin_resp.status_code}",
+                status_code=signin_resp.status_code,
+            )
 
         signin_result = signin_resp.json()
         oauth_url = signin_result.get("url")
@@ -491,7 +541,10 @@ class OAuth2AuthClient:
                     attempts,
                     last_status,
                 )
-                raise OAuth2Error(f"Auth init failed: {last_status}")
+                raise OAuth2Error(
+                    f"Auth init failed: {last_status}",
+                    status_code=last_status,
+                )
 
             # Check if authId is present
             auth_id = init_data.get("authId")
@@ -540,7 +593,10 @@ class OAuth2AuthClient:
                     login_resp.status_code,
                     self._safe_response_excerpt(login_resp.text),
                 )
-                raise OAuth2Error(f"Login failed: {login_resp.status_code}")
+                raise OAuth2Error(
+                    f"Login failed: {login_resp.status_code}",
+                    status_code=login_resp.status_code,
+                )
 
             login_data = login_resp.json()
 
@@ -743,7 +799,8 @@ class OAuth2AuthClient:
                         response.text,
                     )
                     raise OAuth2Error(
-                        f"Token refresh failed: {response.status_code} {response.text}"
+                        f"Token refresh failed: {response.status_code} {response.text}",
+                        status_code=response.status_code,
                     )
 
                 token_data = response.json()
@@ -763,6 +820,8 @@ class OAuth2AuthClient:
 
         except AuthenticationError:
             raise
+        except httpx.HTTPError as exc:
+            raise FortumConnectionError("Network error during token refresh") from exc
         except Exception as exc:
             _LOGGER.warning("token refresh failed: %s", self._format_exception(exc))
             raise AuthenticationError(f"Token refresh failed: {exc}") from exc

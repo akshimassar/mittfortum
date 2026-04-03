@@ -125,15 +125,17 @@ class TestOAuth2AuthClient:
             with pytest.raises(AuthenticationError):
                 await client.authenticate()
 
-    async def test_authenticate_fails_fast_on_authentication_error(self, mock_hass):
-        """Initial authenticate should not retry AuthenticationError."""
+    async def test_authenticate_fails_fast_on_401_authentication_error(self, mock_hass):
+        """Initial authenticate should not retry 401 authentication errors."""
         client = OAuth2AuthClient(
             hass=mock_hass,
             username="test@example.com",
             password="test_password",
         )
 
-        client._authenticate_once = AsyncMock(side_effect=AuthenticationError("temp"))
+        client._authenticate_once = AsyncMock(
+            side_effect=AuthenticationError("temp", status_code=401)
+        )
 
         with patch(
             "custom_components.fortum.api.auth.asyncio.sleep", new=AsyncMock()
@@ -160,6 +162,57 @@ class TestOAuth2AuthClient:
             "custom_components.fortum.api.auth.asyncio.sleep", new=AsyncMock()
         ) as mock_sleep:
             result = await client.authenticate()
+
+        assert result is expected_tokens
+        assert client._authenticate_once.await_count == 2
+        mock_sleep.assert_awaited_once()
+
+    async def test_authenticate_retries_retryable_oauth_errors(self, mock_hass):
+        """Initial authenticate should retry transient OAuth response failures."""
+        client = OAuth2AuthClient(
+            hass=mock_hass,
+            username="test@example.com",
+            password="test_password",
+        )
+
+        expected_tokens = Mock()
+        client._authenticate_once = AsyncMock(
+            side_effect=[
+                OAuth2Error("Upstream unavailable", status_code=503),
+                expected_tokens,
+            ]
+        )
+
+        with patch(
+            "custom_components.fortum.api.auth.asyncio.sleep", new=AsyncMock()
+        ) as mock_sleep:
+            result = await client.authenticate()
+
+        assert result is expected_tokens
+        assert client._authenticate_once.await_count == 2
+        mock_sleep.assert_awaited_once()
+
+    async def test_authenticate_with_backoff_retries_auth_error_in_retry_forever_mode(
+        self, mock_hass
+    ):
+        """Re-auth path should keep retrying auth errors in retry-forever mode."""
+        client = OAuth2AuthClient(
+            hass=mock_hass,
+            username="test@example.com",
+            password="test_password",
+        )
+        expected_tokens = Mock()
+        client._authenticate_once = AsyncMock(
+            side_effect=[
+                AuthenticationError("invalid credentials", status_code=401),
+                expected_tokens,
+            ]
+        )
+
+        with patch(
+            "custom_components.fortum.api.auth.asyncio.sleep", new=AsyncMock()
+        ) as mock_sleep:
+            result = await client._authenticate_with_backoff(retry_forever=True)
 
         assert result is expected_tokens
         assert client._authenticate_once.await_count == 2
@@ -619,7 +672,7 @@ class TestOAuth2AuthClient:
         async def _fail_then_succeed() -> Mock:
             reauth_attempts["count"] += 1
             if reauth_attempts["count"] <= 15:
-                raise AuthenticationError("reauth failed")
+                raise FortumConnectionError("temporary network issue")
             return Mock()
 
         client._authenticate_once = AsyncMock(side_effect=_fail_then_succeed)

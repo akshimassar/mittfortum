@@ -98,19 +98,6 @@ class UnexpectedStatusCodeError(APIError):
         super().__init__(message, status_code=status_code)
 
 
-class TokenExpiredError(AuthenticationError):
-    """Exception raised when authentication token has expired."""
-
-    def __init__(
-        self,
-        message: str = "Token has expired",
-        *,
-        status_code: int | None = None,
-    ) -> None:
-        """Initialize the exception."""
-        super().__init__(message, status_code=status_code)
-
-
 class OAuth2Error(AuthenticationError):
     """Exception raised for OAuth2-related errors."""
 
