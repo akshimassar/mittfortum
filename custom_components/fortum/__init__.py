@@ -37,6 +37,7 @@ from homeassistant.const import (
     EVENT_HOMEASSISTANT_STARTED,
 )
 from homeassistant.core import callback
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.setup import async_when_setup
 
 from .api import FortumAPIClient, OAuth2AuthClient
@@ -65,7 +66,14 @@ from .dashboard_strategy import (
     collect_available_metering_points,
 )
 from .device import FortumDevice
-from .exceptions import AuthenticationError, FortumError, InvalidResponseError
+from .exceptions import (
+    AuthenticationError,
+    FortumError,
+    InvalidResponseError,
+)
+from .exceptions import (
+    ConnectionError as FortumConnectionError,
+)
 from .log_capture import ensure_diagnostics_log_capture, remove_diagnostics_log_capture
 from .logging_utils import ensure_function_name_log_prefix
 from .migrations import (
@@ -231,7 +239,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             monotonic() - setup_started,
             exc,
         )
-        return False
+        raise ConfigEntryAuthFailed("Authentication failed") from exc
+    except FortumConnectionError as exc:
+        _LOGGER.warning(
+            "setup deferred due to connection error entry_id=%s after %.2fs: %s",
+            entry.entry_id,
+            monotonic() - setup_started,
+            exc,
+        )
+        raise ConfigEntryNotReady("Connection error during setup") from exc
     except FortumError as exc:
         _LOGGER.error(
             "setup failed entry_id=%s after %.2fs: %s",

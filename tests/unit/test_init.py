@@ -4,9 +4,11 @@ import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
 from homeassistant.components.lovelace.const import LOVELACE_DATA
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from custom_components.fortum import (
     _apply_debug_logging,
@@ -20,6 +22,12 @@ from custom_components.fortum.const import (
     CONF_CREATE_DASHBOARD,
     CONF_DEBUG_LOGGING,
     DOMAIN,
+)
+from custom_components.fortum.exceptions import (
+    AuthenticationError,
+)
+from custom_components.fortum.exceptions import (
+    ConnectionError as FortumConnectionError,
 )
 from custom_components.fortum.models import MeteringPoint
 
@@ -199,7 +207,7 @@ class TestInit:
             assert result is False
 
     async def test_async_setup_entry_auth_failure(self, mock_hass):
-        """Test setup with authentication failure."""
+        """Test setup raises reauth flow on authentication failure."""
         entry = AsyncMock(spec=ConfigEntry)
         entry.data = {
             CONF_USERNAME: "test@example.com",
@@ -213,13 +221,42 @@ class TestInit:
         mock_hass.data = {DOMAIN: {}}
 
         with patch("custom_components.fortum.OAuth2AuthClient") as mock_auth:
-            mock_auth_instance = AsyncMock()
-            mock_auth_instance.authenticate.side_effect = Exception("Auth failed")
+            mock_auth_instance = Mock()
+            mock_auth_instance.region = "se"
+            mock_auth_instance.set_session_update_callback = Mock(return_value=None)
+            mock_auth_instance.authenticate = AsyncMock(
+                side_effect=AuthenticationError("Auth failed")
+            )
             mock_auth.return_value = mock_auth_instance
 
-            result = await async_setup_entry(mock_hass, entry)
+            with pytest.raises(ConfigEntryAuthFailed):
+                await async_setup_entry(mock_hass, entry)
 
-            assert result is False
+    async def test_async_setup_entry_connection_failure_retries(self, mock_hass):
+        """Test setup raises not-ready on transient connection failures."""
+        entry = AsyncMock(spec=ConfigEntry)
+        entry.data = {
+            CONF_USERNAME: "test@example.com",
+            CONF_PASSWORD: "wrong_password",
+        }
+        entry.entry_id = "test_entry_id"
+        entry.options = {}
+        entry.add_update_listener = Mock(return_value=Mock())
+        entry.async_on_unload = Mock()
+
+        mock_hass.data = {DOMAIN: {}}
+
+        with patch("custom_components.fortum.OAuth2AuthClient") as mock_auth:
+            mock_auth_instance = Mock()
+            mock_auth_instance.region = "se"
+            mock_auth_instance.set_session_update_callback = Mock(return_value=None)
+            mock_auth_instance.authenticate = AsyncMock(
+                side_effect=FortumConnectionError("Timeout")
+            )
+            mock_auth.return_value = mock_auth_instance
+
+            with pytest.raises(ConfigEntryNotReady):
+                await async_setup_entry(mock_hass, entry)
 
     async def test_async_unload_entry_success(self, mock_hass):
         """Test successful unload."""
