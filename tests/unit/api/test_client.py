@@ -1,5 +1,6 @@
 """Unit tests for FortumAPIClient."""
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
@@ -1248,6 +1249,58 @@ class TestFortumAPIClient:
 
         assert kwargs["from_date"] == expected_from
         assert kwargs["to_date"] == expected_to
+
+    async def test_record_hourly_data_stats_logs_latest_available_window(
+        self,
+        mock_hass,
+        mock_auth_client,
+        caplog,
+    ) -> None:
+        """Import summary should include latest available consumption window."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        from_date = datetime.fromisoformat("2026-03-10T00:00:00+00:00")
+        to_date = datetime.fromisoformat("2026-03-10T03:00:00+00:00")
+        time_series = TimeSeries(
+            delivery_site_category="CONSUMPTION",
+            measurement_unit="kWh",
+            metering_point_no="6094111",
+            price_unit="c/kWh",
+            cost_unit="EUR",
+            temperature_unit="celsius",
+            series=[
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-10T00:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=1.0, type="ENERGY")],
+                    cost=None,
+                    price=None,
+                    temperature_reading=None,
+                ),
+                TimeSeriesDataPoint(
+                    at_utc=datetime.fromisoformat("2026-03-10T02:00:00+00:00"),
+                    energy=[EnergyDataPoint(value=2.0, type="ENERGY")],
+                    cost=None,
+                    price=None,
+                    temperature_reading=None,
+                ),
+            ],
+        )
+
+        caplog.set_level(logging.DEBUG, logger="custom_components.fortum.api.client")
+        with patch.object(client, "get_time_series_data", return_value=[time_series]):
+            imported = await client._record_hourly_data_stats(
+                "6094111",
+                from_date,
+                to_date,
+                continue_after_missing=False,
+            )
+
+        assert imported == 0
+        assert (
+            "hourly stats import done: metering_point_no=6094111 "
+            "from=2026-03-10 to=2026-03-10 "
+            "latest_available=2026-03-10T00:00:00+00:00 -> "
+            "2026-03-10T02:00:00+00:00 processed_records=0"
+        ) in caplog.text
 
     async def test_record_hourly_data_stats_skips_unchanged_digest(
         self,

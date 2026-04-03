@@ -70,6 +70,11 @@ def _fmt_day(value: datetime) -> str:
     return dt_util.as_utc(value).date().isoformat()
 
 
+def _fmt_hour(value: datetime) -> str:
+    """Format datetime for concise hour-level logs."""
+    return dt_util.as_utc(value).replace(minute=0, second=0, microsecond=0).isoformat()
+
+
 class FortumAPIClient:
     """Main API client for Fortum tRPC services."""
 
@@ -613,8 +618,8 @@ class FortumAPIClient:
         )
 
         imported_points = 0
-        total_consumption_seed: float | None = None
-        total_consumption_final: float | None = None
+        earliest_available_hour: datetime | None = None
+        latest_available_hour: datetime | None = None
         for time_series in time_series_list:
             self._record_earliest_available_marker(time_series, from_date)
 
@@ -637,6 +642,25 @@ class FortumAPIClient:
             temperature_statistics: list[_MutableStatisticRow] = []
             first_missing_price_at: datetime | None = None
             ordered_points = sorted(time_series.series, key=lambda item: item.at_utc)
+            if ordered_points:
+                series_start = dt_util.as_utc(ordered_points[0].at_utc).replace(
+                    minute=0,
+                    second=0,
+                    microsecond=0,
+                )
+                series_end = dt_util.as_utc(ordered_points[-1].at_utc).replace(
+                    minute=0,
+                    second=0,
+                    microsecond=0,
+                )
+                if (
+                    earliest_available_hour is None
+                    or series_start < earliest_available_hour
+                ):
+                    earliest_available_hour = series_start
+                if latest_available_hour is None or series_end > latest_available_hour:
+                    latest_available_hour = series_end
+
             for point in ordered_points:
                 point_time = dt_util.as_utc(point.at_utc).replace(
                     minute=0,
@@ -730,13 +754,10 @@ class FortumAPIClient:
                     consumption_statistic_id,
                     consumption_statistics[0]["start"],
                 )
-                if total_consumption_seed is None:
-                    total_consumption_seed = consumption_sum
                 for row in consumption_statistics:
                     state_value = row["state"]
                     consumption_sum += state_value
                     row["sum"] = consumption_sum
-                total_consumption_final = consumption_sum
 
             if cost_statistics:
                 cost_sum = await self._get_hourly_stat_sum_before_hour(
@@ -894,25 +915,25 @@ class FortumAPIClient:
 
             self._last_hourly_stats_digest = digest
 
-        seed_text = (
-            f"{total_consumption_seed:.3f}"
-            if total_consumption_seed is not None
+        earliest_text = (
+            _fmt_hour(earliest_available_hour)
+            if earliest_available_hour is not None
             else "n/a"
         )
-        final_text = (
-            f"{total_consumption_final:.3f}"
-            if total_consumption_final is not None
+        latest_text = (
+            _fmt_hour(latest_available_hour)
+            if latest_available_hour is not None
             else "n/a"
         )
         _LOGGER.debug(
             "hourly stats import done: metering_point_no=%s from=%s to=%s "
-            "processed_records=%d total_consumption %s -> %s",
+            "latest_available=%s -> %s processed_records=%d",
             metering_point_no,
             _fmt_day(from_date),
             _fmt_day(to_date),
+            earliest_text,
+            latest_text,
             imported_points,
-            seed_text,
-            final_text,
         )
 
         return imported_points
