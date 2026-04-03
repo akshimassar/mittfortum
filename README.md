@@ -44,18 +44,21 @@ Built-in energy dashboard is also supported:
 
 ## Configuration
 
-1. Go to Configuration > Integrations
+1. Go to Settings -> Devices & Services
 2. Click "Add Integration"
 3. Search for "Fortum"
 4. Enter your Fortum username and password
 5. Select your region and complete setup
 
+### Integration Options
+
+- **Create Fortum dashboard**: Auto-creates a Fortum dashboard when missing.
+- **Create current month consumption & cost sensors**: Adds optional month-to-date consumption and cost sensors per metering point.
+
 ### Dashboard Setup
 
 - In integration options, enable **Create Fortum dashboard** to auto-create a Fortum dashboard when missing.
-- The same option can also bootstrap Energy sources when supported (currently Home Assistant `2026.1-2026.3`).
 - The integration adds the Lovelace strategy resource automatically during setup.
-- In integration options, enable **Create current month consumption & cost sensors** to expose per-metering-point month-to-date entities.
 
 ![Visual dashboard editor](docs/images/edit_dashboard_settings.png)
 
@@ -66,11 +69,7 @@ strategy:
   type: custom:fortum-energy
 ```
 
-For dashboard behavior and strategy options (including `energy_sources` overrides), see `docs/dashboard.md`.
-
-For manual Energy setup, add Fortum hourly statistics under Grid consumption:
-
-![Energy dashboard grid consumption configuration example](docs/images/grid_consumption_config.png)
+For dashboard behavior and strategy options, see `docs/dashboard.md`.
 
 ## Initial Sync Behavior
 
@@ -81,15 +80,18 @@ For manual Energy setup, add Fortum hourly statistics under Grid consumption:
 
 ## Entities
 
-Fortum accounts includes one or more metering points (delivery sites). In Home Assistant metering point are identified by metering point number. To distinguish them, for each metering point there is a diagnostic sensor showing address of the point and price area in square brackets. Each metering point belongs to a price area, (for example `[FI]` or `[SE3]`), and spot-price entities are shown with that `[AREA]` suffix.
+Fortum accounts include one or more metering points (delivery sites). In Home Assistant, metering points are identified by metering point number. To distinguish them, each metering point has a diagnostic sensor that shows the address and price area in square brackets. Each metering point belongs to a price area (for example `[FI]` or `[SE3]`), and spot-price entities use that `[AREA]` suffix.
 
 The integration creates these regular entities:
 
+- **Metering Point <metering_point_no>** (`sensor`, diagnostic): Metering point address and area (`address [AREA]`) with metering-point metadata in attributes.
 - **Price per kWh [AREA]** (`sensor`): Latest spot price for each discovered price area, refreshed by the price coordinator every 5 minutes.
 - **Tomorrow Max Price [AREA]** (`sensor`): Maximum published spot price for tomorrow per area; unavailable until tomorrow prices are published.
 - **Tomorrow Max Price Time [AREA]** (`sensor`, timestamp): Timestamp for tomorrow's maximum spot price per area; unavailable until tomorrow prices are published.
-- **Current Month Consumption <metering_point_no>** (`sensor`, optional): Month-to-date consumption per metering point, updated by hourly statistics sync.
-- **Current Month Cost <metering_point_no>** (`sensor`, optional): Month-to-date cost per metering point, updated by hourly statistics sync.
+- **Norgespris consumption limit <metering_point_no>** (`sensor`, Norway only): Consumption limit value when Fortum provides it for the metering point.
+- **Current Month Consumption <metering_point_no>** (`sensor`, optional): Month-to-date consumption per metering point, updated by hourly statistics sync when the current-month option is enabled.
+- **Current Month Cost <metering_point_no>** (`sensor`, optional): Month-to-date cost per metering point, updated by hourly statistics sync when the current-month option is enabled.
+- **Statistics Last Sync** (`sensor`, diagnostic): Timestamp of the latest successful hourly statistics sync.
 
 Additionally, it imports hourly Recorder statistics for each available metering point:
 
@@ -121,7 +123,7 @@ If you open an issue, please attach Home Assistant diagnostics for this integrat
 
 1. In Fortum integration options, enable **Debug logging**.
 2. Reproduce the issue.
-3. Go to **Integration** page in Home Assistant.
+3. Go to **Settings -> Devices & Services**.
 4. Open the Fortum integration card.
 5. Click the **three dots** menu.
 6. Select **Download diagnostics**.
