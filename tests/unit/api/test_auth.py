@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from custom_components.fortum.api.auth import OAuth2AuthClient
+from custom_components.fortum.const import API_DEFAULT_REQUEST_TIMEOUT_SECONDS
 from custom_components.fortum.exceptions import AuthenticationError, OAuth2Error
+from custom_components.fortum.exceptions import (
+    ConnectionError as FortumConnectionError,
+)
 
 
 class TestOAuth2AuthClient:
@@ -139,6 +143,28 @@ class TestOAuth2AuthClient:
 
         mock_sleep.assert_not_awaited()
 
+    async def test_authenticate_retries_transient_connection_errors(self, mock_hass):
+        """Initial authenticate should retry transient connection failures."""
+        client = OAuth2AuthClient(
+            hass=mock_hass,
+            username="test@example.com",
+            password="test_password",
+        )
+
+        expected_tokens = Mock()
+        client._authenticate_once = AsyncMock(
+            side_effect=[FortumConnectionError("timeout"), expected_tokens]
+        )
+
+        with patch(
+            "custom_components.fortum.api.auth.asyncio.sleep", new=AsyncMock()
+        ) as mock_sleep:
+            result = await client.authenticate()
+
+        assert result is expected_tokens
+        assert client._authenticate_once.await_count == 2
+        mock_sleep.assert_awaited_once()
+
     async def test_refresh_access_token_session_based(
         self, mock_hass, sample_auth_tokens
     ):
@@ -244,7 +270,7 @@ class TestOAuth2AuthClient:
         mock_http_client.get.assert_awaited_once_with(
             "https://success.test",
             follow_redirects=True,
-            timeout=30.0,
+            timeout=API_DEFAULT_REQUEST_TIMEOUT_SECONDS,
         )
 
     async def test_complete_oauth_authorization_uses_oauth_url_without_success_url(
@@ -270,7 +296,7 @@ class TestOAuth2AuthClient:
         mock_http_client.get.assert_awaited_once_with(
             "https://oauth.test",
             follow_redirects=True,
-            timeout=30.0,
+            timeout=API_DEFAULT_REQUEST_TIMEOUT_SECONDS,
         )
 
     async def test_refresh_access_token_no_refresh_token(self, mock_hass):

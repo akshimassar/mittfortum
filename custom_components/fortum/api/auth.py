@@ -37,7 +37,6 @@ _LOGGER = logging.getLogger(__name__)
 CONTENT_TYPE_JSON = "application/json"
 SESSION_BASED_TOKEN = "session_based"
 BEARER_TOKEN_TYPE = "Bearer"
-REQUEST_TIMEOUT_SECONDS = 30.0
 DEFAULT_TOKEN_EXPIRY_HOURS = 1  # 1 hour default expiry fallback
 FIXED_TOKEN_LIFETIME_SECONDS = 900  # 15 minutes
 SESSION_VERIFICATION_RETRY_DELAYS = (0.5, 1.0, 2.0, 3.0)
@@ -362,7 +361,7 @@ class OAuth2AuthClient:
         # Get providers
         providers_resp = await client.get(
             self._endpoints.providers,
-            timeout=REQUEST_TIMEOUT_SECONDS,
+            timeout=API_DEFAULT_REQUEST_TIMEOUT_SECONDS,
         )
         if providers_resp.status_code != 200:
             _LOGGER.info(
@@ -374,7 +373,7 @@ class OAuth2AuthClient:
         # Get CSRF token
         csrf_resp = await client.get(
             self._endpoints.csrf,
-            timeout=REQUEST_TIMEOUT_SECONDS,
+            timeout=API_DEFAULT_REQUEST_TIMEOUT_SECONDS,
         )
         if csrf_resp.status_code != 200:
             _LOGGER.info(
@@ -619,12 +618,22 @@ class OAuth2AuthClient:
             await client.get(
                 start_url,
                 follow_redirects=True,
-                timeout=REQUEST_TIMEOUT_SECONDS,
+                timeout=API_DEFAULT_REQUEST_TIMEOUT_SECONDS,
             )
 
+        except httpx.HTTPError as exc:
+            _LOGGER.debug(
+                "OAuth authorization completion transient network error "
+                "(oauth_url=%s): %s",
+                oauth_url_for_log,
+                self._format_exception(exc),
+            )
+            raise FortumConnectionError(
+                "Network error during OAuth authorization completion"
+            ) from exc
         except Exception as exc:
             exc_text = self._format_exception(exc)
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "OAuth authorization completion failed (oauth_url=%s): %s",
                 oauth_url_for_log,
                 exc_text,
