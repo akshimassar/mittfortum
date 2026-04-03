@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [4.3.2]
+
+### Changed
+- Updated README and docs files.
+
 ## [4.3.1]
 
 ### Changed
