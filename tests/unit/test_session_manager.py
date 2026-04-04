@@ -380,3 +380,57 @@ async def test_refresh_from_api_failure_keeps_previous_snapshot(mock_hass) -> No
     assert manager._refresh_handle is not None  # noqa: SLF001
 
     await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_refresh_from_api_repeated_failures_then_recovery(mock_hass) -> None:
+    """Refresh should preserve snapshot on failures and recover availability."""
+    stable_payload = _session_payload("6094111")
+    updated_payload = _session_payload("6094111", addresses={"6094111": "Recovered 1"})
+
+    api_client = Mock()
+    api_client.get_session_payload = AsyncMock(
+        side_effect=[
+            APIError("temporary failure"),
+            InvalidResponseError("bad payload"),
+            updated_payload,
+        ]
+    )
+
+    manager = SessionManager(mock_hass, "entry-id", api_client)
+    manager.start()
+    await manager.async_update_from_payload(stable_payload, source="setup")
+
+    def _async_add_entities(new_entities, update_before_add=False):
+        return None
+
+    await manager.async_setup_sensor_platform(
+        _async_add_entities,
+        coordinator=Mock(),
+        price_coordinator=Mock(),
+        device=Mock(),
+        region="no",
+        create_current_month_sensors=False,
+    )
+
+    previous_snapshot = manager.get_snapshot()
+    assert previous_snapshot is not None
+
+    await manager._async_refresh_from_api()  # noqa: SLF001
+    assert manager.get_snapshot() == previous_snapshot
+    assert manager._session_available is False  # noqa: SLF001
+    assert manager._refresh_handle is not None  # noqa: SLF001
+
+    await manager._async_refresh_from_api()  # noqa: SLF001
+    assert manager.get_snapshot() == previous_snapshot
+    assert manager._session_available is False  # noqa: SLF001
+    assert manager._refresh_handle is not None  # noqa: SLF001
+
+    await manager._async_refresh_from_api()  # noqa: SLF001
+    recovered_snapshot = manager.get_snapshot()
+    assert recovered_snapshot is not None
+    assert recovered_snapshot != previous_snapshot
+    assert recovered_snapshot.metering_points[0].address == "Recovered 1"
+    assert manager._session_available is True  # noqa: SLF001
+
+    await manager.stop()

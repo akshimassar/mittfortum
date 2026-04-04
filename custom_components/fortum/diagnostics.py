@@ -35,6 +35,11 @@ TO_REDACT = {
     "session_cookies",
     "customerId",
     "customer_id",
+    "postalAddress",
+    "postal_address",
+    "postOffice",
+    "post_office",
+    "name",
 }
 
 _MESSAGE_REDACTION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (

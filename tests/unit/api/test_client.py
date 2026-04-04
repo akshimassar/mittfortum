@@ -604,6 +604,47 @@ class TestFortumAPIClient:
             mock_sleep.assert_any_await(REQUEST_RETRY_DELAYS[0])
             mock_sleep.assert_any_await(REQUEST_RETRY_DELAYS[1])
 
+    async def test_get_retries_mixed_errors_then_succeeds(
+        self, mock_hass, mock_auth_client
+    ):
+        """GET should recover after transient auth and API errors."""
+        mock_auth_client.access_token = "test_access_token_123"
+        mock_auth_client.session_cookies = {"sessionid": "test_session"}
+
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+
+        with (
+            patch.object(
+                client,
+                "_handle_response",
+                side_effect=[
+                    AuthenticationError("Unauthorized (401)"),
+                    APIError("temporary backend issue"),
+                    Mock(status_code=200, text="{}", json=Mock(return_value={})),
+                ],
+            ),
+            patch(
+                "custom_components.fortum.api.client.asyncio.sleep",
+                new=AsyncMock(),
+            ) as mock_sleep,
+            patch(
+                "custom_components.fortum.api.client.get_async_client"
+            ) as mock_get_client,
+        ):
+            mock_client = AsyncMock()
+            mock_client.get.return_value = Mock(status_code=200, text="{}")
+            mock_client.cookies = {}
+            mock_get_client.return_value.__aenter__.return_value = mock_client
+            mock_get_client.return_value.__aexit__.return_value = None
+
+            result = await client._get("https://www.fortum.com/se/el/api/test")
+
+            assert result.status_code == 200
+            assert mock_client.get.call_count == 3
+            assert mock_sleep.await_count == 2
+            mock_sleep.assert_any_await(REQUEST_RETRY_DELAYS[0])
+            mock_sleep.assert_any_await(REQUEST_RETRY_DELAYS[1])
+
     async def test_get_raises_authentication_error_only_after_last_retry(
         self,
         mock_hass,
@@ -676,6 +717,43 @@ class TestFortumAPIClient:
 
             with pytest.raises(APIError):
                 await client._get("https://www.fortum.com/se/el/api/test")
+
+    async def test_get_wraps_unexpected_exception_after_retry_exhaustion(
+        self,
+        mock_hass,
+        mock_auth_client,
+    ):
+        """GET should raise APIError for non-domain failures after retries."""
+        mock_auth_client.access_token = "test_access_token_123"
+        mock_auth_client.session_cookies = {"sessionid": "test_session"}
+
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+
+        with (
+            patch.object(
+                client,
+                "_handle_response",
+                side_effect=RuntimeError("network stack exploded"),
+            ),
+            patch(
+                "custom_components.fortum.api.client.asyncio.sleep",
+                new=AsyncMock(),
+            ) as mock_sleep,
+            patch(
+                "custom_components.fortum.api.client.get_async_client"
+            ) as mock_get_client,
+        ):
+            mock_client = AsyncMock()
+            mock_client.get.return_value = Mock(status_code=500, text="error")
+            mock_client.cookies = {}
+            mock_get_client.return_value.__aenter__.return_value = mock_client
+            mock_get_client.return_value.__aexit__.return_value = None
+
+            with pytest.raises(APIError, match="GET request failed"):
+                await client._get("https://www.fortum.com/se/el/api/test")
+
+            assert mock_client.get.call_count == 3
+            assert mock_sleep.await_count == 2
 
     async def test_session_expiration_307_redirect(self, mock_hass, mock_auth_client):
         """Test 307 redirect handling for TokenExpired redirect."""
