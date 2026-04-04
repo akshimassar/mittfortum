@@ -12,6 +12,7 @@ from homeassistant.helpers import frame
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.fortum.api.client import FortumAPIClient
+from custom_components.fortum.const import HOURLY_DATA_RECENT_WINDOW_DAYS
 from custom_components.fortum.coordinators.hourly_consumption import (
     HourlyConsumptionSyncCoordinator,
 )
@@ -256,7 +257,7 @@ class TestHourlyConsumptionSyncCoordinator:
         coordinator,
         mock_api_client,
     ):
-        """Month total should be unavailable without previous-month baseline hour."""
+        """Month total should be unavailable without any baseline in lookback window."""
         mock_api_client.sync_hourly_data_for_metering_points.return_value = 1
 
         recorder_instance = Mock()
@@ -300,8 +301,67 @@ class TestHourlyConsumptionSyncCoordinator:
 
         expected_month_start = datetime.fromisoformat("2026-03-01T00:00:00+00:00")
         baseline_query = mock_statistics_during_period.call_args_list[1].kwargs
-        assert baseline_query["start_time"] == expected_month_start - timedelta(hours=1)
+        assert baseline_query["start_time"] == expected_month_start - timedelta(
+            days=HOURLY_DATA_RECENT_WINDOW_DAYS
+        )
         assert baseline_query["end_time"] == expected_month_start
+
+    async def test_statistics_sync_uses_latest_available_baseline_in_lookback_window(
+        self,
+        coordinator,
+        mock_api_client,
+    ):
+        """Month total should use the latest available baseline sum from lookback."""
+        mock_api_client.sync_hourly_data_for_metering_points.return_value = 1
+
+        recorder_instance = Mock()
+        recorder_instance.async_add_executor_job = AsyncMock(
+            side_effect=lambda fn: fn()
+        )
+
+        with (
+            patch(
+                "custom_components.fortum.coordinators.hourly_consumption.get_instance",
+                return_value=recorder_instance,
+            ),
+            patch(
+                "custom_components.fortum.coordinators.hourly_consumption.get_metadata",
+                side_effect=[{}, {}],
+            ),
+            patch(
+                "custom_components.fortum.coordinators.hourly_consumption.statistics_during_period",
+                side_effect=[
+                    {"fortum:hourly_consumption_6094111": [{"sum": 130.0}]},
+                    {
+                        "fortum:hourly_consumption_6094111": [
+                            {"sum": 90.0},
+                            {"sum": 105.0},
+                        ]
+                    },
+                    {"fortum:hourly_cost_6094111": [{"sum": 42.0}]},
+                    {
+                        "fortum:hourly_cost_6094111": [
+                            {"sum": 30.0},
+                            {"sum": 38.5},
+                        ]
+                    },
+                ],
+            ),
+            patch(
+                "custom_components.fortum.coordinators.hourly_consumption.dt_util.now",
+                return_value=datetime.fromisoformat("2026-03-20T12:00:00+00:00"),
+            ),
+            patch(
+                "custom_components.fortum.coordinators.hourly_consumption.dt_util.utcnow",
+                return_value=datetime.fromisoformat("2026-03-20T11:17:00+00:00"),
+            ),
+        ):
+            await coordinator.async_run_statistics_sync()
+
+        assert coordinator.get_current_month_consumption_total(
+            "6094111"
+        ) == pytest.approx(25.0)
+        assert coordinator.get_current_month_cost_total("6094111") == pytest.approx(3.5)
 
     async def test_statistics_sync_keeps_total_unavailable_without_in_month_hour(
         self,

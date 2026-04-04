@@ -16,7 +16,7 @@ from homeassistant.helpers.recorder import get_instance
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from ..const import DEFAULT_UPDATE_INTERVAL
+from ..const import DEFAULT_UPDATE_INTERVAL, HOURLY_DATA_RECENT_WINDOW_DAYS
 from ..exceptions import APIError, AuthenticationError
 from ..models import ConsumptionData
 
@@ -184,7 +184,8 @@ class HourlyConsumptionSyncCoordinator(DataUpdateCoordinator[list[ConsumptionDat
                 ),
                 statistics_during_period(
                     self.hass,
-                    start_time=month_start_utc - timedelta(hours=1),
+                    start_time=month_start_utc
+                    - timedelta(days=HOURLY_DATA_RECENT_WINDOW_DAYS),
                     end_time=month_start_utc,
                     statistic_ids={statistic_id},
                     period="hour",
