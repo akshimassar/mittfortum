@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [4.4.0]
+
+### Changed
+- Fixed recent hourly sync gap handling so missing consumption and cost hours are backfilled more reliably.
+- Improved authentication resilience by retrying transient auth network timeouts and refining setup-time auth failure handling.
+
 ## [4.3.4]
 
 ### Changed
