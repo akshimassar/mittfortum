@@ -122,17 +122,16 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       this._unsubscribe();
     }
     this._collection = collection;
-    this._unsubscribe = collection.subscribe((data) => {
-      const bounds = this._getBounds(data);
+    this._unsubscribe = collection.subscribe(() => {
+      const state = this._collection?.state;
+      const bounds = this._getBounds(state);
       const rangeKey = bounds
         ? `${bounds.start.getTime()}:${bounds.end.getTime()}`
         : this._getCollectionRangeKey();
       if (rangeKey && rangeKey === this._lastSubscribedRangeKey) {
-        this._energyData = data;
         return;
       }
       this._lastSubscribedRangeKey = rangeKey || null;
-      this._energyData = data;
       this._scheduleUpdate("collection_subscribe_range");
     });
   }
@@ -1154,7 +1153,7 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     }
 
     try {
-      const data = this._energyData || this._collection?.state;
+      const data = this._collection?.state;
       const bounds = this._getBounds(data);
       if (!data || !bounds) {
         this._showCardError("Energy data is unavailable.");
