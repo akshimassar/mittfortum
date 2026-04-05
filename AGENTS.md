@@ -17,6 +17,23 @@ Guidance for AI/code agents working in this repository.
 - Contributor docs: `docs/development.md`
 - API examples doc: `docs/fortum-api.md`
 
+## Quality
+- Always find the root cause of the problem.
+- If root cause is unclear, ask for more debug and propose a debugging plan.
+- If several possible cause available, list them for the user.
+- Don't use symptom-level fixes or band-aid quality fixes.
+- Keep naming consistent with internal semantics, update naming when semantics changes.
+- Do not avoid refactoring work. Always prefer cleaner consistent repository over localization of change.
+- When doing a change, ask yourself if it can be done cleaner, with less logical conditions. If so, propose that change to user.
+- Try to find best cleanest possible architectural solution.
+
+## Architecture Invariants
+- Preserve clear layer ownership and a single source of truth for each domain concern.
+- Avoid cross-layer links and side-channel access; consumers must use the owning abstraction.
+- When introducing a new manager/service (for example `SessionManager`), migrate all related reads/writes to it in the same change.
+- Do not leave mixed access paths (new abstraction + legacy direct access) in runtime code.
+- Treat bypassing the owner boundary as an architecture violation.
+
 ## Workflow (Common)
 1. Read relevant files first.
 2. Implement the smallest safe change.
@@ -81,18 +98,6 @@ Availability, i.e. Session Manager:
   - one `warning` when becoming unavailable
   - one `warning` when recovered
   - transient per-request details at `debug`/`info` as needed
-
-## Fix Quality
-- Prefer root-cause fixes over symptom-level timing/retry workarounds.
-- If a temporary workaround is unavoidable, mark it clearly and follow up with a root-cause fix.
-- If internal behavior changes materially, rename methods/functions to match new semantics (avoid stale names that describe old behavior).
-
-## Architecture Invariants
-- Preserve clear layer ownership and a single source of truth for each domain concern.
-- Avoid cross-layer links and side-channel access; consumers must use the owning abstraction.
-- When introducing a new manager/service (for example `SessionManager`), migrate all related reads/writes to it in the same change.
-- Do not leave mixed access paths (new abstraction + legacy direct access) in runtime code.
-- Treat bypassing the owner boundary as an architecture violation unless explicitly documented as temporary.
 
 ## Validation
 - Required baseline checks:
