@@ -61,6 +61,7 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       this._unsubscribe();
       this._unsubscribe = undefined;
     }
+    this._collection = undefined;
     if (this._resizeObserver) {
       this._resizeObserver.disconnect();
       this._resizeObserver = undefined;
@@ -77,6 +78,11 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       this._exportDebugInfoHandler = undefined;
     }
     this._teardownDebugLifecycleListeners();
+    this._recordDebugEvent("subscription_state", {
+      action: "disconnected",
+      has_active_subscription: false,
+      collection_key: this._getCollectionKey(),
+    });
     this._recordDebugEvent("card_disconnected");
   }
 
@@ -249,7 +255,20 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
 
   _trySubscribe() {
     const collection = this._getCollection();
-    if (!collection || collection === this._collection || !collection.subscribe) {
+    if (!collection || !collection.subscribe) {
+      this._recordDebugEvent("subscription_state", {
+        action: "missing_collection_or_subscribe",
+        has_collection: Boolean(collection),
+        has_subscribe: Boolean(collection?.subscribe),
+      });
+      return;
+    }
+    if (collection === this._collection && this._unsubscribe) {
+      this._recordDebugEvent("subscription_state", {
+        action: "already_subscribed",
+        has_active_subscription: true,
+        collection_key: this._getCollectionKey(),
+      });
       return;
     }
     if (this._unsubscribe) {
@@ -270,6 +289,11 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         range_key: rangeKey || null,
       });
       this._scheduleUpdate("collection_subscribe_range");
+    });
+    this._recordDebugEvent("subscription_state", {
+      action: "subscribed",
+      has_active_subscription: true,
+      collection_key: this._getCollectionKey(),
     });
   }
 
@@ -411,6 +435,13 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
   }
 
   _scheduleUpdate(trigger = "unspecified", triggerContext = null) {
+    if (!Number.isFinite(this._updateSequence)) {
+      this._updateSequence = 0;
+    }
+    if (!Number.isFinite(this._pendingUpdateId)) {
+      this._pendingUpdateId = this._updateSequence + 1;
+      this._updateSequence = this._pendingUpdateId;
+    }
     if (!Array.isArray(this._pendingUpdateTriggers)) {
       this._pendingUpdateTriggers = [];
     }
@@ -432,13 +463,16 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
         : ["unspecified"];
       const primaryTrigger = triggerChain[0] || "unspecified";
       const finalTrigger = triggerChain[triggerChain.length - 1] || "unspecified";
+      const updateId = this._pendingUpdateId;
       this._lastUpdateMeta = {
+        updateId,
         primaryTrigger,
         finalTrigger,
         triggerChain,
         triggerContexts: { ...(this._pendingTriggerContexts || {}) },
       };
       this._lastUpdateTrigger = finalTrigger;
+      this._pendingUpdateId = undefined;
       this._pendingUpdateTriggers = [];
       this._pendingTriggerContexts = undefined;
       this._updateChart();
@@ -1172,7 +1206,32 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
     this._chart.hass = this._hass;
     this._chart.data = visibleSeries;
     this._chart.options = this._chartOptions;
+    const updateId = this._lastUpdateMeta?.updateId ?? null;
+    const appliedRangeStart = this._latestAdaptiveDebugInfo?.payload?.range?.start?.iso || null;
+    const appliedRangeEnd = this._latestAdaptiveDebugInfo?.payload?.range?.end?.iso || null;
+    this._recordDebugEvent("update_applied", {
+      update_id: updateId,
+      range_start: appliedRangeStart,
+      range_end: appliedRangeEnd,
+      visible_series_count: visibleSeries.length,
+    });
     this._chart.requestUpdate?.();
+    const updateComplete = this._chart.updateComplete;
+    if (updateComplete && typeof updateComplete.then === "function") {
+      updateComplete
+        .then(() => {
+          this._recordDebugEvent("render_committed", {
+            update_id: updateId,
+            range_start: appliedRangeStart,
+            range_end: appliedRangeEnd,
+          });
+        })
+        .catch(() => {
+          this._recordDebugEvent("render_commit_failed", {
+            update_id: updateId,
+          });
+        });
+    }
 
     this._renderCustomLegendTable(this._legendRows || [], hidden);
   }
@@ -1421,6 +1480,10 @@ export class FortumEnergyDevicesAdaptiveGraphCard extends HTMLElement {
       const rangeKey = `${bounds.start.getTime()}:${bounds.end.getTime()}`;
       const updateSignature = this._buildUpdateSignature(rangeKey, metrics);
       if (updateSignature === this._lastRenderedUpdateSignature) {
+        this._recordDebugEvent("update_skipped_same_signature", {
+          update_id: this._lastUpdateMeta?.updateId ?? null,
+          range_key: rangeKey,
+        });
         return;
       }
 
