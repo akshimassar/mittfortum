@@ -13,6 +13,21 @@ import {
 import { FortumEnergyMultipointDashboardStrategy } from "/fortum-energy-static/strategy/strategies/multipoint-strategy.js";
 import { deriveEnergyRuntimeConfig, normalizeEnergySourceOverrides } from "/fortum-energy-static/strategy/runtime-config.mjs";
 
+const resolveIntegrationVersion = () => {
+  try {
+    const parsed = new URL(import.meta.url, globalThis?.location?.href);
+    const version = parsed.searchParams.get("v");
+    if (typeof version === "string" && version.trim().length) {
+      return version.trim();
+    }
+  } catch (_err) {
+    // Fall back below.
+  }
+  return "unknown";
+};
+
+globalThis.__fortumEnergyIntegrationVersion = resolveIntegrationVersion();
+
 const registerIfNeeded = (tag, klass) => {
   if (typeof customElements === "undefined") {
     return;

@@ -7,6 +7,42 @@ import {
 const STORE_KEY = "__fortumEnergyDashboardDebugStore";
 const ADAPTIVE_HISTORY_LIMIT = 160;
 
+const resolveHomeAssistantVersion = (hass) => {
+  const version = hass?.config?.version;
+  if (typeof version === "string" && version.trim().length) {
+    return version.trim();
+  }
+  return "unknown";
+};
+
+const resolveIntegrationVersion = () => {
+  const version = globalThis.__fortumEnergyIntegrationVersion;
+  if (typeof version === "string" && version.trim().length) {
+    return version.trim();
+  }
+  return "unknown";
+};
+
+const resolveBrowserDiagnostics = () => {
+  if (typeof navigator === "undefined") {
+    return {
+      user_agent: "unknown",
+      language: "unknown",
+      platform: "unknown",
+    };
+  }
+
+  const uaDataPlatform = navigator.userAgentData?.platform;
+  return {
+    user_agent: navigator.userAgent || "unknown",
+    language: navigator.language || "unknown",
+    platform:
+      (typeof uaDataPlatform === "string" && uaDataPlatform) ||
+      navigator.platform ||
+      "unknown",
+  };
+};
+
 const clonePayload = (value) => {
   if (typeof structuredClone === "function") {
     try {
@@ -94,6 +130,11 @@ export const buildDashboardDebugExport = ({
       enabled: true,
       personal_placeholder_format: "[REDACTED <field> <n>]",
       token_placeholder: REDACTION_TOKEN,
+    },
+    environment: {
+      home_assistant_version: resolveHomeAssistantVersion(hass),
+      integration_version: resolveIntegrationVersion(),
+      browser: resolveBrowserDiagnostics(),
     },
     dashboard_config: clonePayload(store.cardConfigs),
     discoverable_metering_points: getDiscoverableMeteringPoints(hass),

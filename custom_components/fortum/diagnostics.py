@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.diagnostics import async_redact_data
@@ -65,6 +67,23 @@ _MESSAGE_REDACTION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
+def _integration_version() -> str:
+    """Return integration version from manifest for diagnostics."""
+    manifest_path = Path(__file__).parent / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return "unknown"
+
+    version = manifest.get("version")
+    if isinstance(version, str) and version.strip():
+        return version.strip()
+    return "unknown"
+
+
+_INTEGRATION_VERSION = _integration_version()
+
+
 def _redact_message(message: str) -> str:
     """Redact sensitive values from plain-text log messages."""
     redacted = message
@@ -99,6 +118,9 @@ async def async_get_config_entry_diagnostics(
     session_manager = entry_data.get("session_manager")
     snapshot = session_manager.get_snapshot() if session_manager is not None else None
     metering_points_count = len(snapshot.metering_points) if snapshot else 0
+    ha_version = getattr(hass.config, "version", "unknown")
+    if not isinstance(ha_version, str) or not ha_version.strip():
+        ha_version = str(ha_version) if ha_version is not None else "unknown"
 
     raw_logs = get_diagnostics_log_snapshot(hass)
     safe_logs = []
@@ -120,6 +142,8 @@ async def async_get_config_entry_diagnostics(
             "options": async_redact_data(dict(entry.options), TO_REDACT),
         },
         "runtime": {
+            "home_assistant_version": ha_version,
+            "integration_version": _INTEGRATION_VERSION,
             "region": entry.data.get(CONF_REGION),
             "metering_points_count": metering_points_count,
             "has_api_client": entry_data.get("api_client") is not None,

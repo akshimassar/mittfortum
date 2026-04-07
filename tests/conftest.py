@@ -22,6 +22,7 @@ def mock_hass():
     hass.data = {}
     hass.states = MagicMock()
     hass.config = MagicMock()
+    hass.config.version = "2026.4.0"
     hass.config.components = set()
     hass.config_entries = MagicMock()
     hass.config_entries._entries = {}

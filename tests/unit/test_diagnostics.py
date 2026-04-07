@@ -84,6 +84,9 @@ class TestDiagnostics:
         assert diagnostics["entry"]["data"]["password"] != "very-secret"
         assert diagnostics["entry"]["data"]["username"] != "me@example.com"
         assert diagnostics["runtime"]["metering_points_count"] == 2
+        assert diagnostics["runtime"]["home_assistant_version"] == "2026.4.0"
+        assert isinstance(diagnostics["runtime"]["integration_version"], str)
+        assert diagnostics["runtime"]["integration_version"]
         assert diagnostics["runtime"]["coordinator"]["last_update_success"] is True
         assert (
             diagnostics["runtime"]["price_coordinator"]["last_update_success"] is False
@@ -117,6 +120,9 @@ class TestDiagnostics:
 
         diagnostics = await async_get_config_entry_diagnostics(mock_hass, entry)
 
+        assert diagnostics["runtime"]["home_assistant_version"] == "2026.4.0"
+        assert isinstance(diagnostics["runtime"]["integration_version"], str)
+        assert diagnostics["runtime"]["integration_version"]
         assert diagnostics["runtime"]["metering_points_count"] == 0
         assert diagnostics["runtime"]["coordinator"] == {}
         assert diagnostics["runtime"]["price_coordinator"] == {}
