@@ -1068,7 +1068,9 @@ class TestFortumAPIClient:
         """Historical gap backfill should advance finder from last filled day."""
         client = FortumAPIClient(mock_hass, mock_auth_client)
         now = datetime.fromisoformat("2026-03-18T00:00:00+00:00")
-        gap_start = datetime.fromisoformat("2026-02-01T10:00:00+00:00")
+        gap_start_1 = datetime.fromisoformat("2026-01-10T10:00:00+00:00")
+        gap_start_2 = datetime.fromisoformat("2026-01-25T14:00:00+00:00")
+        gap_start_3 = datetime.fromisoformat("2026-02-10T08:00:00+00:00")
 
         with (
             patch(
@@ -1078,12 +1080,12 @@ class TestFortumAPIClient:
             patch.object(
                 client,
                 "_find_first_recorded_price_gap_hour",
-                side_effect=[gap_start, None],
+                side_effect=[gap_start_1, gap_start_2, gap_start_3, None],
             ) as mock_find_gap,
             patch.object(
                 client,
                 "_record_hourly_data_stats",
-                return_value=5,
+                side_effect=[5, 3, 4],
             ) as mock_record,
             patch.object(
                 client,
@@ -1095,18 +1097,36 @@ class TestFortumAPIClient:
                 (MeteringPoint(metering_point_no="6094111"),)
             )
 
-        assert imported == 5
-        assert mock_record.call_count == 1
-        assert mock_record.call_args.args[1] == datetime.fromisoformat(
-            "2026-01-31T10:00:00+00:00"
+        assert imported == 12
+        assert mock_record.call_count == 3
+        assert mock_record.call_args_list[0].args[1] == datetime.fromisoformat(
+            "2026-01-09T10:00:00+00:00"
         )
-        assert mock_record.call_args.args[2] == datetime.fromisoformat(
-            "2026-02-14T10:00:00+00:00"
+        assert mock_record.call_args_list[0].args[2] == datetime.fromisoformat(
+            "2026-01-23T10:00:00+00:00"
         )
-        assert mock_recalculate.call_count == 1
-        assert mock_find_gap.call_count == 2
+        assert mock_record.call_args_list[1].args[1] == datetime.fromisoformat(
+            "2026-01-24T14:00:00+00:00"
+        )
+        assert mock_record.call_args_list[1].args[2] == datetime.fromisoformat(
+            "2026-02-07T14:00:00+00:00"
+        )
+        assert mock_record.call_args_list[2].args[1] == datetime.fromisoformat(
+            "2026-02-09T08:00:00+00:00"
+        )
+        assert mock_record.call_args_list[2].args[2] == datetime.fromisoformat(
+            "2026-02-23T08:00:00+00:00"
+        )
+        assert mock_recalculate.call_count == 3
+        assert mock_find_gap.call_count == 4
         assert mock_find_gap.call_args_list[1].kwargs["from_date"] == (
-            datetime.fromisoformat("2026-02-13T00:00:00+00:00")
+            datetime.fromisoformat("2026-01-22T00:00:00+00:00")
+        )
+        assert mock_find_gap.call_args_list[2].kwargs["from_date"] == (
+            datetime.fromisoformat("2026-02-06T00:00:00+00:00")
+        )
+        assert mock_find_gap.call_args_list[3].kwargs["from_date"] == (
+            datetime.fromisoformat("2026-02-22T00:00:00+00:00")
         )
 
     async def test_record_hourly_data_stats_populates_runtime_metadata_cache(

@@ -375,10 +375,18 @@ class FortumAPIClient:
                     window_start + timedelta(days=HOURLY_DATA_RECENT_WINDOW_DAYS),
                     utc_now,
                 )
-                imported_points += await self._record_hourly_data_stats(
+                imported_points_in_window = await self._record_hourly_data_stats(
                     metering_point_no,
                     window_start,
                     window_end,
+                )
+                imported_points += imported_points_in_window
+                _LOGGER.debug(
+                    "historical gap processed: metering_point_no=%s gap_start=%s "
+                    "added_points=%d",
+                    metering_point_no,
+                    _fmt_day(gap_start),
+                    imported_points_in_window,
                 )
                 await self._recalculate_hourly_sums_until_end(
                     metering_point_no,
