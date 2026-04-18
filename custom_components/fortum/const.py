@@ -89,7 +89,7 @@ NORGESPRIS_CONSUMPTION_LIMIT_SENSOR_KEY = "norgespris_consumption_limit"
 CURRENT_MONTH_CONSUMPTION_SENSOR_KEY = "current_month_consumption"
 CURRENT_MONTH_COST_SENSOR_KEY = "current_month_cost"
 STATS_LAST_SYNC_SENSOR_KEY = "statistics_last_sync"
-CLEAR_STATS_BUTTON_KEY = "statistics_clear_all"
+RESYNC_HISTORICAL_STATS_BUTTON_KEY = "statistics_resync_historical"
 RECREATE_DASHBOARD_BUTTON_KEY = "dashboard_recreate"
 BACKFILL_HISTORICAL_GAPS_BUTTON_KEY = "statistics_backfill_historical_gaps"
 

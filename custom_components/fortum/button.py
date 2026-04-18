@@ -16,11 +16,11 @@ from . import (
 )
 from .const import (
     BACKFILL_HISTORICAL_GAPS_BUTTON_KEY,
-    CLEAR_STATS_BUTTON_KEY,
     CONF_DEBUG_ENTITIES,
     DEFAULT_DEBUG_ENTITIES,
     DOMAIN,
     RECREATE_DASHBOARD_BUTTON_KEY,
+    RESYNC_HISTORICAL_STATS_BUTTON_KEY,
 )
 from .dashboard_strategy import (
     build_auto_dashboard_strategy_config,
@@ -60,7 +60,7 @@ async def async_setup_entry(
 
     async_add_entities(
         [
-            FortumClearStatisticsButton(
+            FortumResyncHistoricalStatsButton(
                 coordinator=coordinator,
                 device=device,
                 entry=entry,
@@ -79,8 +79,8 @@ async def async_setup_entry(
     )
 
 
-class FortumClearStatisticsButton(FortumEntity, ButtonEntity):
-    """Debug button to clear imported statistics."""
+class FortumResyncHistoricalStatsButton(FortumEntity, ButtonEntity):
+    """Debug button to re-sync hourly history from earliest available hour."""
 
     _attr_entity_registry_enabled_default = False
 
@@ -90,12 +90,12 @@ class FortumClearStatisticsButton(FortumEntity, ButtonEntity):
         device: FortumDevice,
         entry: ConfigEntry,
     ) -> None:
-        """Initialize clear statistics button."""
+        """Initialize historical re-sync button."""
         super().__init__(
             coordinator=coordinator,
             device=device,
-            entity_key=CLEAR_STATS_BUTTON_KEY,
-            name="Clear Statistics",
+            entity_key=RESYNC_HISTORICAL_STATS_BUTTON_KEY,
+            name="Re-Sync Historical Stats",
         )
         self._entry = entry
 
@@ -105,19 +105,19 @@ class FortumClearStatisticsButton(FortumEntity, ButtonEntity):
         return _has_available_metering_points(self.coordinator.hass)
 
     async def async_press(self) -> None:
-        """Clear all imported statistics for Fortum metering points."""
+        """Re-sync hourly statistics from earliest available Fortum history."""
         pause_all_sync_schedules(self.coordinator.hass)
         coordinator = cast(Any, self.coordinator)
         try:
-            cleared = await coordinator.async_clear_statistics()
+            changed_or_added_hours = await coordinator.async_resync_historical_stats()
         except APIError as exc:
-            raise HomeAssistantError(f"Clear statistics failed: {exc}") from exc
+            raise HomeAssistantError(f"Historical re-sync failed: {exc}") from exc
         finally:
             resume_all_sync_schedules(self.coordinator.hass)
 
         _LOGGER.info(
-            "manual statistics clear removed %d statistic ids",
-            cleared,
+            "manual historical re-sync added/updated %d hours",
+            changed_or_added_hours,
         )
 
 

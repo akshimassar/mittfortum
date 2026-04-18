@@ -1,6 +1,7 @@
 """Unit tests for FortumAPIClient."""
 
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -1304,6 +1305,362 @@ class TestFortumAPIClient:
         assert mock_find_gap.call_count == 2
         assert mock_find_gap.call_args_list[1].kwargs["from_date"] == (
             datetime.fromisoformat("2026-02-13T00:00:00+00:00")
+        )
+
+    async def test_resync_historical_stats_reconciles_three_hour_cases(
+        self,
+        mock_hass,
+        mock_auth_client,
+        caplog,
+    ) -> None:
+        """Re-sync should reconcile three-hour cases across six weeks."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        fixture_path = (
+            Path(__file__).resolve().parents[2]
+            / "fixtures"
+            / "hourly_gap_backfill_fixture.json"
+        )
+        fixture = json.loads(fixture_path.read_text())
+
+        def _entry_hour(entry: dict[str, float | int]) -> datetime:
+            return datetime.fromtimestamp(
+                int(cast("int", entry["start"])) / 1000,
+                tz=UTC,
+            )
+
+        without_gap_entries = cast(
+            "list[dict[str, float | int]]", fixture["without_gap"]
+        )
+        first_metric_hour = datetime.fromisoformat(
+            str(fixture["range_start"]).replace("Z", "+00:00")
+        )
+        now = first_metric_hour + timedelta(days=42)
+
+        selected_entries = [
+            dict(entry)
+            for entry in without_gap_entries
+            if first_metric_hour <= _entry_hour(entry) < now
+        ]
+        assert len(selected_entries) == 42 * 24
+
+        earliest_available_hour = first_metric_hour - timedelta(days=2)
+        metering_point = MeteringPoint(
+            metering_point_no="6094111",
+            earliest_hourly_available_at_utc=earliest_available_hour,
+        )
+        consumption_sid = client._build_consumption_statistic_id("6094111")
+        cost_sid = client._build_cost_statistic_id("6094111")
+        price_sid = client._build_price_statistic_id("6094111")
+        temperature_sid = client._build_temperature_statistic_id("6094111")
+
+        fortum_entries_by_hour: dict[datetime, dict[str, float | int]] = {
+            _entry_hour(entry): dict(entry) for entry in selected_entries
+        }
+        changed_day_start = first_metric_hour + timedelta(days=10)
+        changed_hour = changed_day_start + timedelta(hours=23)
+        ha_only_day_start = first_metric_hour + timedelta(days=16)
+        fortum_only_day_start = first_metric_hour + timedelta(days=29)
+        ha_only_day_hours = [ha_only_day_start + timedelta(hours=i) for i in range(24)]
+        fortum_only_day_hours = [
+            fortum_only_day_start + timedelta(hours=i) for i in range(24)
+        ]
+
+        assert changed_hour in fortum_entries_by_hour
+        assert all(hour in fortum_entries_by_hour for hour in ha_only_day_hours)
+        assert all(hour in fortum_entries_by_hour for hour in fortum_only_day_hours)
+
+        ha_only_day_entries = {
+            hour: dict(fortum_entries_by_hour[hour]) for hour in ha_only_day_hours
+        }
+        for hour in ha_only_day_hours:
+            fortum_entries_by_hour.pop(hour)
+
+        ha_seed_entries_by_hour = {
+            hour: dict(entry) for hour, entry in fortum_entries_by_hour.items()
+        }
+        ha_seed_entries_by_hour.update(ha_only_day_entries)
+        for hour in fortum_only_day_hours:
+            ha_seed_entries_by_hour.pop(hour)
+
+        fortum_changed_consumption = float(
+            cast("float", fortum_entries_by_hour[changed_hour]["consumption"])
+        )
+        changed_entry = dict(ha_seed_entries_by_hour[changed_hour])
+        changed_entry["consumption"] = fortum_changed_consumption + 0.777
+        ha_seed_entries_by_hour[changed_hour] = changed_entry
+        changed_seed_consumption = float(cast("float", changed_entry["consumption"]))
+
+        ha_only_day_consumption_before_resync = {
+            hour: float(cast("float", ha_seed_entries_by_hour[hour]["consumption"]))
+            for hour in ha_only_day_hours
+        }
+        fortum_only_day_consumption = {
+            hour: float(cast("float", fortum_entries_by_hour[hour]["consumption"]))
+            for hour in fortum_only_day_hours
+        }
+
+        fortum_only_day_consumption_total = sum(fortum_only_day_consumption.values())
+        fortum_only_day_cost_total = sum(
+            float(cast("float", fortum_entries_by_hour[hour]["cost"]))
+            for hour in fortum_only_day_hours
+        )
+
+        def _build_state_points(
+            entries: list[dict[str, float | int]],
+        ) -> list[TimeSeriesDataPoint]:
+            points: list[TimeSeriesDataPoint] = []
+            for entry in entries:
+                temperature_raw = entry.get("temperature")
+                temperature_reading = (
+                    TemperatureReading(
+                        temperature=float(cast("float", temperature_raw))
+                    )
+                    if isinstance(temperature_raw, int | float)
+                    else None
+                )
+
+                points.append(
+                    TimeSeriesDataPoint(
+                        at_utc=_entry_hour(entry),
+                        energy=[
+                            EnergyDataPoint(
+                                value=float(cast("float", entry["consumption"])),
+                                type="ENERGY",
+                            )
+                        ],
+                        cost=[
+                            CostDataPoint(
+                                total=float(cast("float", entry["cost"])),
+                                value=float(cast("float", entry["cost"])),
+                                type="COST_SALES_ELECTRICITY",
+                            )
+                        ],
+                        price=Price(
+                            total=float(cast("float", entry["price"])),
+                            value=float(cast("float", entry["price"])),
+                            vat_amount=0.0,
+                            vat_percentage=0,
+                        ),
+                        temperature_reading=temperature_reading,
+                    )
+                )
+            return points
+
+        def _ordered_entries(
+            by_hour: dict[datetime, dict[str, float | int]],
+        ) -> list[dict[str, float | int]]:
+            return [by_hour[hour] for hour in sorted(by_hour)]
+
+        fortum_states: dict[str, list[TimeSeriesDataPoint]] = {
+            "ha_seed": _build_state_points(_ordered_entries(ha_seed_entries_by_hour)),
+            "fortum_resync": _build_state_points(
+                _ordered_entries(fortum_entries_by_hour)
+            ),
+        }
+        active_state = {"name": "ha_seed"}
+
+        recorder_store: dict[
+            str,
+            dict[datetime, dict[str, datetime | float]],
+        ] = {
+            consumption_sid: {},
+            cost_sid: {},
+            price_sid: {},
+            temperature_sid: {},
+        }
+
+        class _FakeRecorderInstance:
+            async def async_add_executor_job(self, job):
+                return job()
+
+        def _fake_statistics_during_period(
+            _hass,
+            start_time: datetime,
+            end_time: datetime,
+            statistic_ids: set[str],
+            period: str,
+            units,
+            types: set[str],
+        ) -> dict[str, list[dict[str, datetime | float]]]:
+            assert period == "hour"
+            result: dict[str, list[dict[str, datetime | float]]] = {}
+            for statistic_id in statistic_ids:
+                by_hour = recorder_store.get(statistic_id, {})
+                rows: list[dict[str, datetime | float]] = []
+                for hour in sorted(by_hour):
+                    if not (start_time <= hour < end_time):
+                        continue
+
+                    stored = by_hour[hour]
+                    row: dict[str, datetime | float] = {"start": hour}
+                    if "state" in types and "state" in stored:
+                        row["state"] = float(cast("float", stored["state"]))
+                    if "mean" in types and "mean" in stored:
+                        row["mean"] = float(cast("float", stored["mean"]))
+                    if "sum" in types and "sum" in stored:
+                        row["sum"] = float(cast("float", stored["sum"]))
+                    if len(row) > 1:
+                        rows.append(row)
+
+                result[statistic_id] = rows
+            return result
+
+        def _fake_add_external_statistics(_hass, metadata, rows):
+            sid = metadata["statistic_id"]
+            by_hour = recorder_store.setdefault(sid, {})
+            for row in rows:
+                stored: dict[str, datetime | float] = {
+                    "start": cast("datetime", row["start"]),
+                    "state": float(cast("float", row["state"])),
+                    "mean": float(cast("float", row["mean"])),
+                }
+                if "sum" in row:
+                    stored["sum"] = float(cast("float", row["sum"]))
+                by_hour[cast("datetime", row["start"])] = stored
+
+        async def _fake_get_time_series_data(
+            metering_point_nos: list[str],
+            from_date: datetime,
+            to_date: datetime,
+            resolution: str,
+            series_type: str | None = None,
+            request_timeout: float | None = None,
+        ) -> list[TimeSeries]:
+            assert metering_point_nos == ["6094111"]
+            assert resolution == "HOUR"
+            assert series_type == "CONSUMPTION"
+            assert request_timeout == HOURLY_DATA_REQUEST_TIMEOUT_SECONDS
+
+            points = [
+                point
+                for point in fortum_states[active_state["name"]]
+                if from_date <= point.at_utc < to_date
+            ]
+            return [
+                TimeSeries(
+                    delivery_site_category="CONSUMPTION",
+                    measurement_unit="kWh",
+                    metering_point_no="6094111",
+                    price_unit="c/kWh",
+                    cost_unit="EUR",
+                    temperature_unit="celsius",
+                    series=points,
+                )
+            ]
+
+        with (
+            patch(
+                "custom_components.fortum.api.client.get_instance",
+                return_value=_FakeRecorderInstance(),
+            ),
+            patch(
+                "custom_components.fortum.api.client.statistics_during_period",
+                side_effect=_fake_statistics_during_period,
+            ),
+            patch(
+                "custom_components.fortum.api.client.async_add_external_statistics",
+                side_effect=_fake_add_external_statistics,
+            ),
+            patch.object(
+                client,
+                "get_time_series_data",
+                side_effect=_fake_get_time_series_data,
+            ),
+            patch(
+                "custom_components.fortum.api.client.dt_util.utcnow",
+                side_effect=[now, now],
+            ),
+        ):
+            caplog.set_level(
+                logging.DEBUG,
+                logger="custom_components.fortum.api.client",
+            )
+            initial_imported = await client.sync_hourly_data_for_metering_points(
+                (metering_point,)
+            )
+            assert initial_imported == len(ha_seed_entries_by_hour)
+
+            last_hour_before_resync = max(recorder_store[consumption_sid])
+            consumption_sum_before_resync = float(
+                cast(
+                    "float",
+                    recorder_store[consumption_sid][last_hour_before_resync]["sum"],
+                )
+            )
+            cost_sum_before_resync = float(
+                cast("float", recorder_store[cost_sid][last_hour_before_resync]["sum"])
+            )
+
+            active_state["name"] = "fortum_resync"
+            imported = await client.resync_historical_stats_for_metering_points(
+                (metering_point,)
+            )
+
+            consumption_sum_after_resync = float(
+                cast(
+                    "float",
+                    recorder_store[consumption_sid][last_hour_before_resync]["sum"],
+                )
+            )
+            cost_sum_after_resync = float(
+                cast("float", recorder_store[cost_sid][last_hour_before_resync]["sum"])
+            )
+
+        def _assert_sum_monotonic(statistic_id: str) -> None:
+            previous_sum: float | None = None
+            for hour in sorted(recorder_store[statistic_id]):
+                current_sum = float(
+                    cast("float", recorder_store[statistic_id][hour].get("sum", 0.0))
+                )
+                if previous_sum is not None:
+                    assert current_sum >= previous_sum
+                previous_sum = current_sum
+
+        assert now - first_metric_hour == timedelta(days=42)
+        assert imported == 25
+        assert min(recorder_store[consumption_sid]) == first_metric_hour
+        _assert_sum_monotonic(consumption_sid)
+        _assert_sum_monotonic(cost_sid)
+
+        assert recorder_store[consumption_sid][changed_hour]["state"] == pytest.approx(
+            fortum_changed_consumption
+        )
+        for hour in ha_only_day_hours:
+            assert recorder_store[consumption_sid][hour]["state"] == pytest.approx(
+                ha_only_day_consumption_before_resync[hour]
+            )
+        for hour in fortum_only_day_hours:
+            assert recorder_store[consumption_sid][hour]["state"] == pytest.approx(
+                fortum_only_day_consumption[hour]
+            )
+
+        expected_consumption_sum_delta = (
+            fortum_only_day_consumption_total
+            + fortum_changed_consumption
+            - changed_seed_consumption
+        )
+        assert (consumption_sum_after_resync - consumption_sum_before_resync) == (
+            pytest.approx(expected_consumption_sum_delta)
+        )
+        assert (cost_sum_after_resync - cost_sum_before_resync) == pytest.approx(
+            fortum_only_day_cost_total
+        )
+
+        missing_logs = [
+            record
+            for record in caplog.records
+            if record.name == "custom_components.fortum.api.client"
+            and record.levelno == logging.INFO
+            and "missing hours in Fortum data but present in statistics: "
+            in record.getMessage()
+        ]
+        assert len(missing_logs) == 1
+        message = missing_logs[0].getMessage()
+        assert "metering_point_no=6094111" in message
+        assert "missing_hours=24" in message
+        assert (
+            f"first_missing_hour={ha_only_day_start.strftime('%Y-%m-%d %H:%M')}"
+            in message
         )
 
     async def test_historical_sync_and_backfill_recalculate_missing_gap_sums(
@@ -2767,7 +3124,7 @@ class TestFortumAPIClient:
 
         assert mock_warning.call_count == 1
         assert mock_warning.call_args.args[0] == (
-            "stats old values changed for %s: first_hour=%s differing_hours=%d"
+            "recorded hour stats changed for %s: first_hour=%s changed_hours=%d"
         )
         assert mock_warning.call_args.args[2] == "2026-03-10 00:00"
         assert mock_warning.call_args.args[3] == 2

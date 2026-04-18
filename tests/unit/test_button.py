@@ -7,8 +7,8 @@ from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.fortum.button import (
     FortumBackfillHistoricalGapsButton,
-    FortumClearStatisticsButton,
     FortumForceRecreateDashboardButton,
+    FortumResyncHistoricalStatsButton,
 )
 from custom_components.fortum.dashboard_strategy import (
     build_multipoint_dashboard_strategy_config,
@@ -30,16 +30,16 @@ def _mock_device() -> Mock:
     return device
 
 
-async def test_clear_statistics_button_triggers_clear() -> None:
-    """Button press should clear imported statistics."""
+async def test_resync_historical_stats_button_triggers_resync() -> None:
+    """Button press should trigger full historical re-sync."""
     coordinator = Mock()
     coordinator.last_update_success = True
     coordinator.data = []
     coordinator.hass = Mock()
     coordinator.hass.data = {}
-    coordinator.async_clear_statistics = AsyncMock(return_value=3)
+    coordinator.async_resync_historical_stats = AsyncMock(return_value=24)
 
-    button = FortumClearStatisticsButton(coordinator, _mock_device(), Mock())
+    button = FortumResyncHistoricalStatsButton(coordinator, _mock_device(), Mock())
     with (
         patch("custom_components.fortum.button.pause_all_sync_schedules") as mock_pause,
         patch(
@@ -50,26 +50,26 @@ async def test_clear_statistics_button_triggers_clear() -> None:
 
     mock_pause.assert_called_once_with(coordinator.hass)
     mock_resume.assert_called_once_with(coordinator.hass)
-    coordinator.async_clear_statistics.assert_awaited_once_with()
+    coordinator.async_resync_historical_stats.assert_awaited_once_with()
 
 
-async def test_clear_statistics_button_surfaces_api_errors() -> None:
-    """Button press should raise HomeAssistantError when clear fails."""
+async def test_resync_historical_stats_button_surfaces_api_errors() -> None:
+    """Button press should raise HomeAssistantError when re-sync fails."""
     coordinator = Mock()
     coordinator.last_update_success = True
     coordinator.data = []
     coordinator.hass = Mock()
     coordinator.hass.data = {}
-    coordinator.async_clear_statistics = AsyncMock(side_effect=APIError("boom"))
+    coordinator.async_resync_historical_stats = AsyncMock(side_effect=APIError("boom"))
 
-    button = FortumClearStatisticsButton(coordinator, _mock_device(), Mock())
+    button = FortumResyncHistoricalStatsButton(coordinator, _mock_device(), Mock())
 
     with (
         patch("custom_components.fortum.button.pause_all_sync_schedules") as mock_pause,
         patch(
             "custom_components.fortum.button.resume_all_sync_schedules"
         ) as mock_resume,
-        pytest.raises(HomeAssistantError, match="Clear statistics failed"),
+        pytest.raises(HomeAssistantError, match="Historical re-sync failed"),
     ):
         await button.async_press()
 
@@ -146,7 +146,7 @@ def test_buttons_available_with_metering_points() -> None:
     }
     entry = Mock(entry_id="entry_1")
 
-    clear_stats = FortumClearStatisticsButton(coordinator, _mock_device(), entry)
+    clear_stats = FortumResyncHistoricalStatsButton(coordinator, _mock_device(), entry)
 
     assert clear_stats.available is True
 
@@ -166,7 +166,7 @@ def test_buttons_unavailable_without_session_snapshot() -> None:
     }
     entry = Mock(entry_id="entry_1")
 
-    clear_stats = FortumClearStatisticsButton(coordinator, _mock_device(), entry)
+    clear_stats = FortumResyncHistoricalStatsButton(coordinator, _mock_device(), entry)
 
     assert clear_stats.available is False
 
@@ -180,7 +180,7 @@ def test_debug_buttons_are_hidden_by_default() -> None:
     coordinator.hass.data = {}
     entry = Mock(entry_id="entry_1")
 
-    clear_stats = FortumClearStatisticsButton(coordinator, _mock_device(), entry)
+    clear_stats = FortumResyncHistoricalStatsButton(coordinator, _mock_device(), entry)
     backfill = FortumBackfillHistoricalGapsButton(coordinator, _mock_device(), entry)
     recreate_dashboard = FortumForceRecreateDashboardButton(
         coordinator,

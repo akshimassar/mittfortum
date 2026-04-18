@@ -199,6 +199,24 @@ class TestHourlyConsumptionSyncCoordinator:
             coordinator._session_manager.get_snapshot.return_value.metering_points,
         )
 
+    async def test_async_resync_historical_stats_updates_sync_timestamp(
+        self,
+        coordinator,
+        mock_api_client,
+    ):
+        """Manual historical re-sync should refresh sync marker."""
+        coordinator.last_statistics_sync = None
+        mock_api_client.resync_historical_stats_for_metering_points.return_value = 11
+
+        with patch.object(coordinator, "_async_refresh_current_month_totals"):
+            imported = await coordinator.async_resync_historical_stats()
+
+        assert imported == 11
+        assert coordinator.last_statistics_sync is not None
+        mock_api_client.resync_historical_stats_for_metering_points.assert_awaited_once_with(
+            coordinator._session_manager.get_snapshot.return_value.metering_points,
+        )
+
     async def test_statistics_sync_refreshes_month_totals_from_recorder(
         self,
         coordinator,
