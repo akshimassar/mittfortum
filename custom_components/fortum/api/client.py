@@ -883,42 +883,29 @@ class FortumAPIClient:
         statistic_id: str,
         hour: datetime,
     ) -> float:
-        """Return cumulative sum from the hour immediately before given hour."""
-        previous_hour = dt_util.as_utc(hour).replace(
+        """Return latest known sum before hour using bounded lookback windows."""
+        hour_utc = dt_util.as_utc(hour).replace(
             minute=0,
             second=0,
             microsecond=0,
-        ) - timedelta(hours=1)
+        )
 
-        try:
-            result = await get_instance(self._hass).async_add_executor_job(
-                lambda: statistics_during_period(
-                    self._hass,
-                    start_time=previous_hour,
-                    end_time=hour,
-                    statistic_ids={statistic_id},
-                    period="hour",
-                    units=None,
-                    types={"sum"},
+        for lookback in (timedelta(hours=48), timedelta(days=365)):
+            sums_by_hour = (
+                await self._get_hourly_stats_values_in_window(
+                    {statistic_id},
+                    hour_utc - lookback,
+                    hour_utc,
+                    value_type="sum",
                 )
-            )
-        except Exception as exc:
-            _LOGGER.debug(
-                "could not read previous sum for %s before %s: %s",
-                statistic_id,
-                hour.isoformat(),
-                exc,
-            )
-            return 0.0
+            ).get(statistic_id)
+            if not sums_by_hour:
+                continue
 
-        rows = result.get(statistic_id) if result else None
-        latest_sum = 0.0
-        if rows:
-            for row in rows:
-                sum_value = row.get("sum")
-                if isinstance(sum_value, (int, float)):
-                    latest_sum = float(sum_value)
-        return latest_sum
+            latest_hour = max(sums_by_hour)
+            return float(sums_by_hour[latest_hour])
+
+        return 0.0
 
     async def _recalculate_hourly_sums_until_end(
         self,

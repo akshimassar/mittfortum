@@ -1067,6 +1067,93 @@ class TestFortumAPIClient:
 
         assert gap_hour is None
 
+    async def test_get_hourly_stat_sum_before_hour_uses_48h_latest_sum(
+        self, mock_hass, mock_auth_client
+    ):
+        """Seed lookup should use the latest sum from 48-hour window first."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        statistic_id = client._build_consumption_statistic_id("6094111")
+        hour = datetime.fromisoformat("2026-04-18T12:34:56+00:00")
+        hour_utc = datetime.fromisoformat("2026-04-18T12:00:00+00:00")
+
+        with patch.object(
+            client,
+            "_get_hourly_stats_values_in_window",
+            return_value={
+                statistic_id: {
+                    datetime.fromisoformat("2026-04-18T10:00:00+00:00"): 122.0,
+                    datetime.fromisoformat("2026-04-18T11:00:00+00:00"): 123.5,
+                }
+            },
+        ) as mock_get_values:
+            seed_sum = await client._get_hourly_stat_sum_before_hour(statistic_id, hour)
+
+        assert seed_sum == pytest.approx(123.5)
+        assert mock_get_values.call_count == 1
+        assert mock_get_values.call_args.args[0] == {statistic_id}
+        assert mock_get_values.call_args.args[1] == hour_utc - timedelta(hours=48)
+        assert mock_get_values.call_args.args[2] == hour_utc
+        assert mock_get_values.call_args.kwargs["value_type"] == "sum"
+
+    async def test_get_hourly_stat_sum_before_hour_falls_back_to_365d(
+        self, mock_hass, mock_auth_client
+    ):
+        """Seed lookup should fallback to 365-day window when 48h is empty."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        statistic_id = client._build_consumption_statistic_id("6094111")
+        hour = datetime.fromisoformat("2026-04-18T12:34:56+00:00")
+        hour_utc = datetime.fromisoformat("2026-04-18T12:00:00+00:00")
+
+        with patch.object(
+            client,
+            "_get_hourly_stats_values_in_window",
+            side_effect=[
+                {},
+                {
+                    statistic_id: {
+                        datetime.fromisoformat("2026-03-01T00:00:00+00:00"): 500.0,
+                        datetime.fromisoformat("2026-04-15T12:00:00+00:00"): 777.25,
+                    }
+                },
+            ],
+        ) as mock_get_values:
+            seed_sum = await client._get_hourly_stat_sum_before_hour(statistic_id, hour)
+
+        assert seed_sum == pytest.approx(777.25)
+        assert mock_get_values.call_count == 2
+        assert mock_get_values.call_args_list[0].args[0] == {statistic_id}
+        assert mock_get_values.call_args_list[0].args[1] == hour_utc - timedelta(
+            hours=48
+        )
+        assert mock_get_values.call_args_list[0].args[2] == hour_utc
+        assert mock_get_values.call_args_list[1].args[0] == {statistic_id}
+        assert mock_get_values.call_args_list[1].args[1] == hour_utc - timedelta(
+            days=365
+        )
+        assert mock_get_values.call_args_list[1].args[2] == hour_utc
+        assert mock_get_values.call_args_list[0].kwargs["value_type"] == "sum"
+        assert mock_get_values.call_args_list[1].kwargs["value_type"] == "sum"
+
+    async def test_get_hourly_stat_sum_before_hour_returns_zero_if_no_sum_found(
+        self, mock_hass, mock_auth_client
+    ):
+        """Seed lookup should return zero when both lookback windows are empty."""
+        client = FortumAPIClient(mock_hass, mock_auth_client)
+        statistic_id = client._build_consumption_statistic_id("6094111")
+
+        with patch.object(
+            client,
+            "_get_hourly_stats_values_in_window",
+            side_effect=[{}, {}],
+        ) as mock_get_values:
+            seed_sum = await client._get_hourly_stat_sum_before_hour(
+                statistic_id,
+                datetime.fromisoformat("2026-04-18T12:34:56+00:00"),
+            )
+
+        assert seed_sum == 0.0
+        assert mock_get_values.call_count == 2
+
     async def test_backfill_historical_price_gaps_updates_search_from(
         self, mock_hass, mock_auth_client
     ):
