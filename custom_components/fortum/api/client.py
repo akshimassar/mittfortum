@@ -123,6 +123,15 @@ class _HourlyStatisticMetadata:
     temperature: StatisticMetaData
 
 
+@dataclass(frozen=True)
+class _HourlyImportResult:
+    """Summary of one hourly import window."""
+
+    changed_or_added_hours: int
+    last_consumption_sum: float | None
+    last_cost_sum: float | None
+
+
 def _fmt_day(value: datetime) -> str:
     """Format datetime for concise day-level logs."""
     return dt_util.as_utc(value).date().isoformat()
@@ -427,25 +436,38 @@ class FortumAPIClient:
                     window_start + timedelta(days=HOURLY_DATA_RECENT_WINDOW_DAYS),
                     utc_now,
                 )
-                changed_or_added_hours_in_window = await self._record_hourly_data_stats(
+                import_result = await self._record_hourly_data_stats_detailed(
                     metering_point_no,
                     window_start,
                     window_end,
                 )
+                changed_or_added_hours_in_window = import_result.changed_or_added_hours
                 changed_or_added_hours += changed_or_added_hours_in_window
+
+                consumption_sum_update = 0.0
+                if changed_or_added_hours_in_window > 0:
+                    consumption_sum_update = (
+                        await self._recalculate_hourly_sums_until_end(
+                            metering_point_no,
+                            window_end,
+                            utc_now,
+                            consumption_seed_sum=import_result.last_consumption_sum
+                            if import_result.last_consumption_sum is not None
+                            else 0.0,
+                            cost_seed_sum=import_result.last_cost_sum
+                            if import_result.last_cost_sum is not None
+                            else 0.0,
+                        )
+                    )
+
                 _LOGGER.debug(
                     "historical gap processed: metering_point_no=%s gap_start=%s "
-                    "hours_added_or_updated=%d",
+                    "hours_added_or_updated=%d consumption_sum_update=%s",
                     metering_point_no,
                     _fmt_day(gap_start),
                     changed_or_added_hours_in_window,
+                    consumption_sum_update,
                 )
-                if changed_or_added_hours_in_window > 0:
-                    await self._recalculate_hourly_sums_until_end(
-                        metering_point_no,
-                        window_start,
-                        utc_now,
-                    )
 
                 last_filled_day = window_end.replace(
                     hour=0,
@@ -721,7 +743,7 @@ class FortumAPIClient:
         from_date: datetime,
         to_date: datetime,
         *,
-        value_type: Literal["mean", "state"],
+        value_type: Literal["mean", "state", "sum"],
     ) -> dict[str, dict[datetime, float]]:
         """Return hourly values keyed by statistic id and hour."""
         if not statistic_ids:
@@ -890,14 +912,12 @@ class FortumAPIClient:
             return 0.0
 
         rows = result.get(statistic_id) if result else None
-        if not rows:
-            return 0.0
-
         latest_sum = 0.0
-        for row in rows:
-            sum_value = row.get("sum")
-            if isinstance(sum_value, (int, float)):
-                latest_sum = float(sum_value)
+        if rows:
+            for row in rows:
+                sum_value = row.get("sum")
+                if isinstance(sum_value, (int, float)):
+                    latest_sum = float(sum_value)
         return latest_sum
 
     async def _recalculate_hourly_sums_until_end(
@@ -905,22 +925,30 @@ class FortumAPIClient:
         metering_point_no: str,
         from_hour: datetime,
         now: datetime,
-    ) -> int:
-        """Recalculate consumption/cost cumulative sums until end of stats."""
+        *,
+        consumption_seed_sum: float,
+        cost_seed_sum: float,
+    ) -> float:
+        """Recalculate sums and return last-hour consumption sum delta."""
         range_start = dt_util.as_utc(from_hour).replace(
             minute=0, second=0, microsecond=0
         )
         range_end = dt_util.as_utc(now).replace(minute=0, second=0, microsecond=0)
         if range_start >= range_end:
-            return 0
+            return 0.0
 
-        statistic_ids = (
-            self._build_consumption_statistic_id(metering_point_no),
-            self._build_cost_statistic_id(metering_point_no),
+        consumption_statistic_id = self._build_consumption_statistic_id(
+            metering_point_no
         )
+        cost_statistic_id = self._build_cost_statistic_id(metering_point_no)
+        statistic_ids = (consumption_statistic_id, cost_statistic_id)
         metadata_by_statistic = {
             statistic_id: self._require_cached_hourly_metadata(statistic_id)
             for statistic_id in statistic_ids
+        }
+        seed_sum_by_statistic = {
+            consumption_statistic_id: consumption_seed_sum,
+            cost_statistic_id: cost_seed_sum,
         }
 
         state_by_statistic = await self._get_hourly_stats_values_in_window(
@@ -929,8 +957,14 @@ class FortumAPIClient:
             range_end,
             value_type="state",
         )
+        existing_sum_by_statistic = await self._get_hourly_stats_values_in_window(
+            set(statistic_ids),
+            range_start,
+            range_end,
+            value_type="sum",
+        )
 
-        rewritten_rows = 0
+        consumption_sum_update = 0.0
         for statistic_id in statistic_ids:
             state_by_hour = state_by_statistic.get(statistic_id)
             if not state_by_hour:
@@ -944,11 +978,8 @@ class FortumAPIClient:
                 )
 
             ordered_hours = sorted(state_by_hour)
-            first_hour = ordered_hours[0]
-            running_sum = await self._get_hourly_stat_sum_before_hour(
-                statistic_id,
-                first_hour,
-            )
+            running_sum = seed_sum_by_statistic[statistic_id]
+            existing_sum_by_hour = existing_sum_by_statistic.get(statistic_id, {})
 
             statistic_rows: list[_MutableStatisticRow] = []
             for hour in ordered_hours:
@@ -970,9 +1001,16 @@ class FortumAPIClient:
                 metadata,
                 cast("list[StatisticData]", statistic_rows),
             )
-            rewritten_rows += len(statistic_rows)
 
-        return rewritten_rows
+            if statistic_id == consumption_statistic_id:
+                last_updated_hour = ordered_hours[-1]
+                previous_sum_at_last_updated_hour = existing_sum_by_hour.get(
+                    last_updated_hour,
+                    0.0,
+                )
+                consumption_sum_update = running_sum - previous_sum_at_last_updated_hour
+
+        return consumption_sum_update
 
     @staticmethod
     def _as_utc_hour(value: datetime) -> datetime:
@@ -1260,13 +1298,13 @@ class FortumAPIClient:
 
         return written_rows
 
-    async def _record_hourly_data_stats(
+    async def _record_hourly_data_stats_detailed(
         self,
         metering_point_no: str,
         from_date: datetime,
         to_date: datetime,
-    ) -> int:
-        """Fetch hourly data and return count of added/updated state hours."""
+    ) -> _HourlyImportResult:
+        """Fetch hourly data and return window import details."""
         request_from_date, request_to_date, sync_start, sync_end = (
             self._build_hourly_request_and_sync_ranges(from_date, to_date)
         )
@@ -1282,6 +1320,10 @@ class FortumAPIClient:
 
         added_hours_total = 0
         updated_hours_total = 0
+        last_consumption_hour: datetime | None = None
+        last_consumption_sum: float | None = None
+        last_cost_hour: datetime | None = None
+        last_cost_sum: float | None = None
         for time_series in time_series_list:
             self._record_earliest_available_marker(time_series, from_date)
             statistic_ids = self._build_hourly_statistic_ids(
@@ -1305,6 +1347,25 @@ class FortumAPIClient:
                 continue
 
             await self._apply_hourly_cumulative_sums(statistic_ids, rows)
+
+            consumption_tail = rows.consumption[-1]
+            consumption_tail_sum = consumption_tail.get("sum")
+            if isinstance(consumption_tail_sum, int | float) and (
+                last_consumption_hour is None
+                or consumption_tail["start"] > last_consumption_hour
+            ):
+                last_consumption_hour = consumption_tail["start"]
+                last_consumption_sum = float(consumption_tail_sum)
+
+            if rows.cost:
+                cost_tail = rows.cost[-1]
+                cost_tail_sum = cost_tail.get("sum")
+                if isinstance(cost_tail_sum, int | float) and (
+                    last_cost_hour is None or cost_tail["start"] > last_cost_hour
+                ):
+                    last_cost_hour = cost_tail["start"]
+                    last_cost_sum = float(cost_tail_sum)
+
             metadata = self._build_and_cache_hourly_metadata(time_series, statistic_ids)
             incoming_by_statistic = self._build_incoming_hourly_state_map(
                 statistic_ids,
@@ -1356,7 +1417,25 @@ class FortumAPIClient:
             updated_hours_total,
         )
 
-        return added_hours_total + updated_hours_total
+        return _HourlyImportResult(
+            changed_or_added_hours=added_hours_total + updated_hours_total,
+            last_consumption_sum=last_consumption_sum,
+            last_cost_sum=last_cost_sum,
+        )
+
+    async def _record_hourly_data_stats(
+        self,
+        metering_point_no: str,
+        from_date: datetime,
+        to_date: datetime,
+    ) -> int:
+        """Fetch hourly data and return count of added/updated state hours."""
+        result = await self._record_hourly_data_stats_detailed(
+            metering_point_no,
+            from_date,
+            to_date,
+        )
+        return result.changed_or_added_hours
 
     @staticmethod
     def _summarize_price_gaps(

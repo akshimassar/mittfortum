@@ -1089,13 +1089,29 @@ class TestFortumAPIClient:
             ) as mock_find_gap,
             patch.object(
                 client,
-                "_record_hourly_data_stats",
-                side_effect=[5, 3, 4],
+                "_record_hourly_data_stats_detailed",
+                side_effect=[
+                    Mock(
+                        changed_or_added_hours=5,
+                        last_consumption_sum=1000.0,
+                        last_cost_sum=100.0,
+                    ),
+                    Mock(
+                        changed_or_added_hours=3,
+                        last_consumption_sum=1300.0,
+                        last_cost_sum=130.0,
+                    ),
+                    Mock(
+                        changed_or_added_hours=4,
+                        last_consumption_sum=1600.0,
+                        last_cost_sum=160.0,
+                    ),
+                ],
             ) as mock_record,
             patch.object(
                 client,
                 "_recalculate_hourly_sums_until_end",
-                return_value=20,
+                return_value=20.0,
             ) as mock_recalculate,
         ):
             imported = await client.backfill_historical_price_gaps_for_metering_points(
@@ -1123,6 +1139,24 @@ class TestFortumAPIClient:
             "2026-02-23T08:00:00+00:00"
         )
         assert mock_recalculate.call_count == 3
+        assert mock_recalculate.call_args_list[0].args[1] == datetime.fromisoformat(
+            "2026-01-23T10:00:00+00:00"
+        )
+        assert (
+            mock_recalculate.call_args_list[0].kwargs["consumption_seed_sum"] == 1000.0
+        )
+        assert mock_recalculate.call_args_list[1].args[1] == datetime.fromisoformat(
+            "2026-02-07T14:00:00+00:00"
+        )
+        assert (
+            mock_recalculate.call_args_list[1].kwargs["consumption_seed_sum"] == 1300.0
+        )
+        assert mock_recalculate.call_args_list[2].args[1] == datetime.fromisoformat(
+            "2026-02-23T08:00:00+00:00"
+        )
+        assert (
+            mock_recalculate.call_args_list[2].kwargs["consumption_seed_sum"] == 1600.0
+        )
         assert mock_find_gap.call_count == 4
         assert mock_find_gap.call_args_list[1].kwargs["from_date"] == (
             datetime.fromisoformat("2026-01-22T00:00:00+00:00")
@@ -1154,13 +1188,17 @@ class TestFortumAPIClient:
             ) as mock_find_gap,
             patch.object(
                 client,
-                "_record_hourly_data_stats",
-                return_value=0,
+                "_record_hourly_data_stats_detailed",
+                return_value=Mock(
+                    changed_or_added_hours=0,
+                    last_consumption_sum=None,
+                    last_cost_sum=None,
+                ),
             ) as mock_record,
             patch.object(
                 client,
                 "_recalculate_hourly_sums_until_end",
-                return_value=0,
+                return_value=0.0,
             ) as mock_recalculate,
         ):
             imported = await client.backfill_historical_price_gaps_for_metering_points(
@@ -1535,6 +1573,8 @@ class TestFortumAPIClient:
                 "6094111",
                 datetime.fromisoformat("2026-03-10T00:00:00+00:00"),
                 datetime.fromisoformat("2026-03-11T00:00:00+00:00"),
+                consumption_seed_sum=0.0,
+                cost_seed_sum=0.0,
             )
 
     async def test_recalculate_hourly_sums_until_end_uses_cached_metadata(
@@ -1542,7 +1582,7 @@ class TestFortumAPIClient:
         mock_hass,
         mock_auth_client,
     ) -> None:
-        """Sum recalculation should reuse cached metadata when writing rows."""
+        """Sum recalculation should reuse cached metadata and return delta."""
         client = FortumAPIClient(mock_hass, mock_auth_client)
         from_hour = datetime.fromisoformat("2026-03-10T00:00:00+00:00")
         to_hour = datetime.fromisoformat("2026-03-11T00:00:00+00:00")
@@ -1566,12 +1606,20 @@ class TestFortumAPIClient:
             ),
         )
 
-        recorder_values = {
+        state_values = {
             consumption_sid: {
                 datetime.fromisoformat("2026-03-10T00:00:00+00:00"): 1.0,
             },
             cost_sid: {
                 datetime.fromisoformat("2026-03-10T00:00:00+00:00"): 0.5,
+            },
+        }
+        sum_values = {
+            consumption_sid: {
+                datetime.fromisoformat("2026-03-10T00:00:00+00:00"): 8.0,
+            },
+            cost_sid: {
+                datetime.fromisoformat("2026-03-10T00:00:00+00:00"): 4.0,
             },
         }
         metadata_used: list[dict[str, Any]] = []
@@ -1583,21 +1631,22 @@ class TestFortumAPIClient:
             patch.object(
                 client,
                 "_get_hourly_stats_values_in_window",
-                return_value=recorder_values,
+                side_effect=[state_values, sum_values],
             ),
-            patch.object(client, "_get_hourly_stat_sum_before_hour", return_value=0.0),
             patch(
                 "custom_components.fortum.api.client.async_add_external_statistics",
                 side_effect=_capture_metadata,
             ),
         ):
-            rewritten = await client._recalculate_hourly_sums_until_end(
+            consumption_sum_update = await client._recalculate_hourly_sums_until_end(
                 "6094111",
                 from_hour,
                 to_hour,
+                consumption_seed_sum=10.0,
+                cost_seed_sum=5.0,
             )
 
-        assert rewritten == 2
+        assert consumption_sum_update == pytest.approx(3.0)
         used_units = {entry["unit_of_measurement"] for entry in metadata_used}
         assert used_units == {"cached-consumption", "cached-cost"}
 
