@@ -172,7 +172,7 @@ def test_buttons_unavailable_without_session_snapshot() -> None:
 
 
 def test_debug_buttons_are_hidden_by_default() -> None:
-    """Debug buttons should be disabled in entity registry by default."""
+    """Debug buttons should be hidden, not disabled, by default."""
     coordinator = Mock()
     coordinator.last_update_success = True
     coordinator.data = []
@@ -188,9 +188,13 @@ def test_debug_buttons_are_hidden_by_default() -> None:
         entry,
     )
 
-    assert clear_stats.entity_registry_enabled_default is False
-    assert backfill.entity_registry_enabled_default is False
-    assert recreate_dashboard.entity_registry_enabled_default is False
+    assert clear_stats.entity_registry_visible_default is False
+    assert backfill.entity_registry_visible_default is False
+    assert recreate_dashboard.entity_registry_visible_default is False
+
+    assert clear_stats.entity_registry_enabled_default is True
+    assert backfill.entity_registry_enabled_default is True
+    assert recreate_dashboard.entity_registry_enabled_default is True
 
 
 def test_build_multipoint_dashboard_strategy_config_defaults_name_to_address() -> None:

@@ -82,7 +82,7 @@ async def async_setup_entry(
 class FortumResyncHistoricalStatsButton(FortumEntity, ButtonEntity):
     """Debug button to re-sync hourly history from earliest available hour."""
 
-    _attr_entity_registry_enabled_default = False
+    _attr_entity_registry_visible_default = False
 
     def __init__(
         self,
@@ -124,7 +124,7 @@ class FortumResyncHistoricalStatsButton(FortumEntity, ButtonEntity):
 class FortumBackfillHistoricalGapsButton(FortumEntity, ButtonEntity):
     """Debug button to backfill historical recorder gaps."""
 
-    _attr_entity_registry_enabled_default = False
+    _attr_entity_registry_visible_default = False
 
     def __init__(
         self,
@@ -166,7 +166,7 @@ class FortumBackfillHistoricalGapsButton(FortumEntity, ButtonEntity):
 class FortumForceRecreateDashboardButton(FortumEntity, ButtonEntity):
     """Debug button to force-recreate dashboard from available points."""
 
-    _attr_entity_registry_enabled_default = False
+    _attr_entity_registry_visible_default = False
 
     def __init__(
         self,
